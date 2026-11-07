@@ -8,6 +8,7 @@
 //   Drehring        -> Seite wechseln: REIFEN / NEIGUNG / AUSRICHTEN
 //   kurz druecken   -> Strasse <-> Offroad   (bei Alarm: Alarm quittieren)
 //   lang druecken   -> Menue (drehen = waehlen, kurz = bearbeiten/OK, lang = zurueck)
+//   Alles geht auch per Touch: tippen / lange tippen / wischen statt drehen
 
 #include <M5Dial.h>
 #include <Preferences.h>
@@ -590,6 +591,19 @@ static void handleInput() {
   int steps = readDetents();
   bool shortPress = M5Dial.BtnA.wasClicked();
   bool longPress = M5Dial.BtnA.wasHold();
+  // Touch als Alternative zum Drehring (z.B. wenn der Dial tief in einem Halter sitzt):
+  //   tippen = kurz druecken, lange tippen = lang druecken,
+  //   wischen links/hoch = weiter, rechts/runter = zurueck
+  if (M5.Touch.getCount()) {
+    const auto& t = M5.Touch.getDetail();
+    if (t.wasClicked()) shortPress = true;
+    else if (t.wasHold()) longPress = true;
+    else if (t.wasFlicked()) {
+      int dx = t.distanceX(), dy = t.distanceY();
+      if (abs(dx) > abs(dy)) steps += dx < 0 ? 1 : -1;
+      else steps += dy < 0 ? 1 : -1;
+    }
+  }
   uint32_t now = millis();
   if (steps || shortPress || longPress) lastInputMs = now;
 

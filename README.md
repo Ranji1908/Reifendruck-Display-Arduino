@@ -5,7 +5,7 @@ Ein rundes Mini-Instrument fürs Armaturenbrett auf Basis des **M5Stack Dial**: 
 und optional **Neigungsmesser** fürs Gelände plus **Ausricht-Hilfe** für den Stellplatz.
 
 - 🛒 **Was kaufen?** → [TEILELISTE.md](TEILELISTE.md)
-- 🖨️ **Halter drucken & einbauen** → [hardware/README.md](hardware/README.md)
+- 🔧 **Einbau** mit fertigem 52-mm-Instrumentenhalter → [TEILELISTE.md](TEILELISTE.md#einbau-ohne-basteln-am-gehäuse) (3D-Druck-Halter optional: [hardware/](hardware/README.md))
 
 ## Die drei Seiten (Drehring dreht weiter)
 
@@ -38,6 +38,7 @@ Die Sensoren senden Druck, Temperatur und Batterie per Bluetooth; der Dial hört
 | | **kurz drücken** | Straße ⇄ Offroad (bei aktivem Alarm: quittieren) |
 | | **lang drücken** | Menü |
 | Menü | drehen / kurz / lang | wählen / ändern & speichern / zurück |
+| **Touch** | tippen / lange tippen / wischen | wie kurz drücken / lang drücken / drehen |
 
 **Menü:** Solldruck Straße vorn/hinten, Offroad vorn/hinten · Warn-, Kritisch-, Überdruck-Schwelle ·
 Leck-Erkennung · Sensoren anlernen · Neigung nullen · Einbaulage · Warnwinkel Seite/Längs ·
@@ -95,7 +96,7 @@ src/oled/main.cpp         Alternative Selbstbau-Firmware: ESP32-C3 + 1,3"-OLED +
 include/BleTpms.h         Bluetooth-Empfang (gemeinsam)
 lib/TpmsCore/             Logik ohne Hardware: Sensor-Dekoder, Warnungen, Neigung, Ausrichten
 test/test_core/           Unit-Tests: pio test -e native
-hardware/                 3D-Druck-Halter (OpenSCAD + STL)
+hardware/                 optionale 3D-Druck-Halter (OpenSCAD + STL)
 ```
 
 ## Haftung
