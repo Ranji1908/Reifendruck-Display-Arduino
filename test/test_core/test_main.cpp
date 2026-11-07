@@ -1,4 +1,6 @@
 // Unit-Tests fuer die Kernlogik. Ausfuehren mit:  pio test -e native
+#include <math.h>
+#include <string.h>
 #include <unity.h>
 
 #include "TpmsCore.h"
@@ -166,6 +168,174 @@ void test_settings() {
   TEST_ASSERT_EQUAL_UINT8(ROAD, s.mode);
 }
 
+// ---- weitere Sensorformate (Testdaten aus github.com/bkbilly/tpms_ble)
+static Advertisement adv(uint64_t addr, uint16_t company, const uint8_t* payload, size_t n, uint8_t* buf,
+                         const char* name = "", uint16_t svc = 0) {
+  buf[0] = company & 0xFF;
+  buf[1] = company >> 8;
+  memcpy(buf + 2, payload, n);
+  Advertisement a;
+  a.address = addr;
+  a.mfr = buf;
+  a.mfrLen = n + 2;
+  a.name = name;
+  if (svc) {
+    a.services[0] = svc;
+    a.serviceCount = 1;
+  }
+  return a;
+}
+
+void test_decode_type_a_via_advertisement() {
+  uint8_t buf[32];
+  uint8_t p[16] = {0};
+  int32_t pa = 230000, t = 2450;
+  memcpy(p + 6, &pa, 4);
+  memcpy(p + 10, &t, 4);
+  p[14] = 85;
+  SensorReading r;
+  TEST_ASSERT_TRUE(decodeAdvertisement(adv(0xAABBCCDDEE01ULL, 0x0100, p, 16, buf, "TPMS1_123456"), r));
+  TEST_ASSERT_EQUAL(SensorType::TypeA, r.type);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 2.3f, r.pressureBar);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 24.5f, r.temperatureC);
+  TEST_ASSERT_EQUAL_UINT8(85, r.batteryPct);
+}
+
+void test_decode_type_b() {
+  uint8_t buf[32];
+  const uint8_t p[5] = {22, 0x01, 0xAE, 0, 0};
+  SensorReading r;
+  TEST_ASSERT_TRUE(decodeAdvertisement(adv(0xAABBCCDDEE02ULL, 0x1E00, p, 5, buf, "", 0x27A5), r));
+  TEST_ASSERT_EQUAL(SensorType::TypeB, r.type);
+  TEST_ASSERT_FLOAT_WITHIN(0.002f, 1.965f, r.pressureBar);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 22.0f, r.temperatureC);
+  TEST_ASSERT_TRUE(r.id == 0xAABBCCDDEE02ULL);
+  const uint8_t neg[5] = {252, 0x01, 0xAE, 0, 0};
+  TEST_ASSERT_TRUE(decodeAdvertisement(adv(1, 0x1E00, neg, 5, buf, "", 0x27A5), r));
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, -4.0f, r.temperatureC);
+}
+
+void test_decode_type_d() {
+  uint8_t buf[32];
+  const uint8_t p[15] = {0xc0, 0x3e, 0x54, 0x00, 0x0a, 0x17, 0x00, 0x8d,
+                         0x28, 0x11, 0x11, 0x11, 0xbe, 0x5d, 0x30};
+  SensorReading r;
+  TEST_ASSERT_TRUE(decodeAdvertisement(adv(0xBE5D30112233ULL, 172, p, 15, buf), r));
+  TEST_ASSERT_EQUAL(SensorType::TypeD, r.type);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.95f, r.pressureBar);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 29.0f, r.temperatureC);
+  TEST_ASSERT_EQUAL_UINT8(100, r.batteryPct);
+}
+
+void test_decode_type_f() {
+  uint8_t buf[32];
+  const uint8_t p[9] = {0xAF, 0x45, 0x00, 0xA7, 0x00, 0x2D, 0x56, 0xA8, 0xB4};
+  SensorReading r;
+  TEST_ASSERT_TRUE(decodeAdvertisement(adv(0x112233445566ULL, 0x0002, p, 9, buf, "TPMS", 0xA827), r));
+  TEST_ASSERT_EQUAL(SensorType::TypeF, r.type);
+  TEST_ASSERT_FLOAT_WITHIN(0.005f, 0.67f, r.pressureBar);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 19.0f, r.temperatureC);
+}
+
+void test_decode_type_g_and_h() {
+  uint8_t buf[32];
+  SensorReading r;
+  const uint8_t g[3] = {0x15, 0x01, 0xAE};
+  TEST_ASSERT_TRUE(decodeAdvertisement(adv(0x1230AF010203ULL, 0x2000, g, 3, buf, "AI-8000"), r));
+  TEST_ASSERT_EQUAL(SensorType::TypeG, r.type);
+  TEST_ASSERT_FLOAT_WITHIN(0.002f, 1.951f, r.pressureBar);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 21.0f, r.temperatureC);
+  const uint8_t ga[3] = {0x0F, 0x00, 0x92};  // Umgebungsluft -> 0 bar
+  TEST_ASSERT_TRUE(decodeAdvertisement(adv(0x1230AF010203ULL, 0x2000, ga, 3, buf, "AI-8000"), r));
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, r.pressureBar);
+
+  const uint8_t h[9] = {18, 0x01, 0xB3, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
+  TEST_ASSERT_TRUE(decodeAdvertisement(adv(0x112233445566ULL, 0x1B04, h, 9, buf, "TC.TPMS", 0xA828), r));
+  TEST_ASSERT_EQUAL(SensorType::TypeH, r.type);
+  TEST_ASSERT_FLOAT_WITHIN(0.002f, 1.993f, r.pressureBar);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 18.0f, r.temperatureC);
+}
+
+void test_decode_ignores_other_devices() {
+  uint8_t buf[32];
+  const uint8_t ibeacon[23] = {0x02, 0x15};
+  SensorReading r;
+  TEST_ASSERT_FALSE(decodeAdvertisement(adv(0x112233445566ULL, 0x004C, ibeacon, 23, buf, "iPhone"), r));
+  Advertisement empty;
+  TEST_ASSERT_FALSE(decodeAdvertisement(empty, r));
+}
+
+// ---- Neigung
+static const float D2R = 0.01745329f;
+
+void test_tilt_flat_sensor() {
+  TiltCalc t;
+  TEST_ASSERT_TRUE(t.setup({0, 0, 1}, 0));
+  float roll, pitch;
+  t.compute({0, 0, 1}, roll, pitch);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 0, roll);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 0, pitch);
+  // Front 10 Grad hoeher: "oben" kippt im Fahrzeugsystem nach vorne (+X)
+  t.compute({sinf(10 * D2R), 0, cosf(10 * D2R)}, roll, pitch);
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 10.0f, pitch);
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.0f, roll);
+  // rechte Seite 5 Grad tiefer: "oben" kippt nach links (+Y)
+  t.compute({0, sinf(5 * D2R), cosf(5 * D2R)}, roll, pitch);
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 5.0f, roll);
+}
+
+void test_tilt_vertical_mount_and_rotation() {
+  // Sensor senkrecht eingebaut: Sensor-Y zeigt nach oben, Sensor-X nach vorne
+  TiltCalc t;
+  TEST_ASSERT_TRUE(t.setup({0, 1, 0}, 0));
+  float roll, pitch;
+  t.compute({sinf(8 * D2R), cosf(8 * D2R), 0}, roll, pitch);
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 8.0f, pitch);
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.0f, roll);
+  // gleiche Lage, aber Einbaulage um 180 Grad gedreht -> Vorzeichen kehrt sich um
+  TEST_ASSERT_TRUE(t.setup({0, 1, 0}, 2));
+  t.compute({sinf(8 * D2R), cosf(8 * D2R), 0}, roll, pitch);
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, -8.0f, pitch);
+  // um 90 Grad: Laengs wird zu Quer
+  TEST_ASSERT_TRUE(t.setup({0, 1, 0}, 1));
+  t.compute({sinf(8 * D2R), cosf(8 * D2R), 0}, roll, pitch);
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.0f, pitch);
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 8.0f, fabsf(roll));
+  TEST_ASSERT_FALSE(t.setup({0, 0, 0}, 0));
+}
+
+void test_leveling_lifts() {
+  float lift[4];
+  levelingLifts(0, 2.0f, 367, 171, lift);  // Front 2 Grad hoeher -> hinten unterlegen
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, lift[FL]);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, lift[FR]);
+  TEST_ASSERT_FLOAT_WITHIN(0.1f, 12.8f, lift[RL]);
+  TEST_ASSERT_FLOAT_WITHIN(0.1f, 12.8f, lift[RR]);
+  levelingLifts(3.0f, 0, 367, 171, lift);  // rechts 3 Grad tiefer -> rechts unterlegen
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, lift[FL]);
+  TEST_ASSERT_FLOAT_WITHIN(0.1f, 9.0f, lift[FR]);
+  TEST_ASSERT_FLOAT_WITHIN(0.1f, 9.0f, lift[RR]);
+}
+
+void test_tilt_warning_hysteresis() {
+  TEST_ASSERT_FALSE(tiltWarning(false, 24.0f, 0, 25, 30));
+  TEST_ASSERT_TRUE(tiltWarning(false, -25.5f, 0, 25, 30));
+  TEST_ASSERT_TRUE(tiltWarning(true, 23.5f, 0, 25, 30));   // noch innerhalb Hysterese
+  TEST_ASSERT_FALSE(tiltWarning(true, 22.5f, 0, 25, 30));
+  TEST_ASSERT_TRUE(tiltWarning(false, 0, 31.0f, 25, 30));
+}
+
+void test_settings_tilt_clamp() {
+  Settings s;
+  s.level[0] = s.level[1] = s.level[2] = 0;  // kaputt
+  s.mountQuarter = 7;
+  s.wheelbaseCm = 10;
+  clampSettings(s);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, s.level[2]);
+  TEST_ASSERT_EQUAL_UINT8(3, s.mountQuarter);
+  TEST_ASSERT_TRUE(s.wheelbaseCm == 150);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_decode_known_packet);
@@ -177,5 +347,16 @@ int main(int, char**) {
   RUN_TEST(test_slow_drop_is_no_leak);
   RUN_TEST(test_alarm_manager);
   RUN_TEST(test_settings);
+  RUN_TEST(test_decode_type_a_via_advertisement);
+  RUN_TEST(test_decode_type_b);
+  RUN_TEST(test_decode_type_d);
+  RUN_TEST(test_decode_type_f);
+  RUN_TEST(test_decode_type_g_and_h);
+  RUN_TEST(test_decode_ignores_other_devices);
+  RUN_TEST(test_tilt_flat_sensor);
+  RUN_TEST(test_tilt_vertical_mount_and_rotation);
+  RUN_TEST(test_leveling_lifts);
+  RUN_TEST(test_tilt_warning_hysteresis);
+  RUN_TEST(test_settings_tilt_clamp);
   return UNITY_END();
 }

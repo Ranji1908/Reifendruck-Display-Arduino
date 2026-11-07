@@ -8,13 +8,13 @@
 //   Menue:        drehen = waehlen, kurz = bearbeiten/OK, lang = zurueck
 
 #include <Arduino.h>
-#include <NimBLEDevice.h>
 #include <Preferences.h>
 #include <U8g2lib.h>
 #include <Wire.h>
 
+#include "config.h"  // vor BleTpms.h (DEBUG_BLE)
+#include "BleTpms.h"
 #include "TpmsCore.h"
-#include "config.h"
 
 using namespace tpms;
 
@@ -37,7 +37,6 @@ static WheelMonitor monitors[WHEEL_COUNT];
 static State states[WHEEL_COUNT] = {State::NotPaired, State::NotPaired, State::NotPaired, State::NotPaired};
 static AlarmManager alarms;
 static Preferences prefs;
-static QueueHandle_t readingQueue;
 
 enum class Screen : uint8_t { Main, Menu, Edit, Pair };
 static Screen screen = Screen::Main;
@@ -46,7 +45,7 @@ static uint32_t overlayUntil = 0;
 static uint32_t lastInputMs = 0;
 
 // ============================================================ Speicher
-static const uint8_t SETTINGS_VERSION = 1;
+static const uint8_t SETTINGS_VERSION = 2;
 
 static void saveSettings() {
   prefs.putUChar("ver", SETTINGS_VERSION);
@@ -66,44 +65,6 @@ static void loadAll() {
 
 static Mode currentMode() { return (Mode)settings.mode; }
 static bool isPaired(int w) { return settings.demo || sensorIds[w] != 0; }
-
-// ============================================================ BLE
-class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
-  void onResult(NimBLEAdvertisedDevice* dev) override {
-    if (!dev->haveManufacturerData()) return;
-    std::string md = dev->getManufacturerData();
-    SensorReading r;
-    bool ok = decodeManufacturerData(reinterpret_cast<const uint8_t*>(md.data()), md.size(), r);
-    if (ok) {
-      r.rssi = (int8_t)dev->getRSSI();
-      xQueueSend(readingQueue, &r, 0);  // BLE-Task -> loop()
-    }
-#if DEBUG_BLE
-    // Rohdaten aller Geraete mit Herstellerdaten ausgeben -> hilft bei unbekannten Sensoren
-    Serial.printf("BLE %s %s rssi=%d len=%u %s data=", dev->getAddress().toString().c_str(),
-                  dev->getName().c_str(), dev->getRSSI(), (unsigned)md.size(), ok ? "TPMS" : "-");
-    for (unsigned char c : md) Serial.printf("%02X", c);
-    Serial.println();
-#endif
-  }
-};
-
-static void startBle() {
-  NimBLEDevice::init("");
-  NimBLEScan* scan = NimBLEDevice::getScan();
-  scan->setAdvertisedDeviceCallbacks(new ScanCallbacks(), true /* Duplikate erwuenscht */);
-  scan->setActiveScan(false);  // passiv reicht, spart Strom
-  scan->setInterval(100);
-  scan->setWindow(99);
-  scan->setDuplicateFilter(false);
-  scan->setMaxResults(0);  // nichts zwischenspeichern, nur Callback
-  scan->start(0, nullptr, false);
-}
-
-static void ensureScanning() {
-  NimBLEScan* scan = NimBLEDevice::getScan();
-  if (!scan->isScanning()) scan->start(0, nullptr, false);
-}
 
 // ============================================================ Summer
 struct Beeper {
@@ -536,7 +497,7 @@ static void handleInput() {
 
 static void processReadings(uint32_t now) {
   SensorReading r;
-  while (xQueueReceive(readingQueue, &r, 0) == pdTRUE) {
+  while (blet::poll(r)) {
     if (screen == Screen::Pair) pairingOnReading(r);
     if (settings.demo) continue;
     for (int w = 0; w < WHEEL_COUNT; ++w)
@@ -590,8 +551,7 @@ void setup() {
   u8g2.drawStr(30, 48, modeName(currentMode()));
   u8g2.sendBuffer();
 
-  readingQueue = xQueueCreate(32, sizeof(SensorReading));
-  startBle();
+  blet::begin();
   overlayUntil = millis() + 800;
   Serial.println("Reifendruck-Display gestartet");
 }
@@ -609,7 +569,7 @@ void loop() {
   }
   if (now - lastScanCheck >= 10000) {
     lastScanCheck = now;
-    ensureScanning();
+    blet::keepAlive();
     logStatus(now);
   }
   beeper.update();

@@ -17,26 +17,49 @@ const char* wheelName(Wheel w);
 const char* modeName(Mode m);
 
 // ---------------------------------------------------------------- Dekoder
+// Unterstuetzte Sensor-Familien (Formate nach github.com/bkbilly/tpms_ble):
+enum class SensorType : uint8_t {
+  Unknown = 0,
+  TypeA,  // App "TPMSII", Name "TPMS1_xxxxxx", Company-ID 0x0100
+  TypeB,  // App "SYTPMS", Service-UUID 0x27A5
+  TypeD,  // App "ITPMS (K)" / "LYTPMS", WODHMIEY, Company-ID 0x00AC (172)
+  TypeF,  // "HRTPMS", Service-UUID 0xA827
+  TypeG,  // App "Ai TPMS" (AI-8000), Name "AI-..." bzw. Adresse 12:30:AF:..
+  TypeH,  // "TC.TPMS", Service-UUID 0xA828
+};
+const char* sensorTypeName(SensorType t);
+
 struct SensorReading {
-  uint64_t id = 0;          // 6-Byte Sensor-Adresse (aus den Nutzdaten)
+  uint64_t id = 0;          // Sensor-ID (BLE-Adresse bzw. Adresse aus den Nutzdaten)
   float pressureBar = 0;    // Ueberdruck in bar
   float temperatureC = 0;   // Temperatur in Grad C
   uint8_t batteryPct = 0;   // Batterie in %
   bool sensorAlarm = false; // Alarm-Flag des Sensors selbst
   int8_t rssi = 0;          // Signalstaerke (wird vom BLE-Teil gesetzt)
+  SensorType type = SensorType::Unknown;
 };
 
-// Dekodiert die "Manufacturer Data" der verbreiteten BLE-Ventilkappen-Sensoren
-// (Name meist "TPMS1_xxxxxx" .. "TPMS4_xxxxxx", Adresse 80:EA:CA:xx:xx:xx).
-// Layout (18 Byte, inkl. 2 Byte Company-ID):
-//   [0..1]  0x00 0x01
-//   [2..7]  Sensor-Adresse
-//   [8..11] Druck in Pa, uint32 little endian
-//   [12..15] Temperatur in 1/100 Grad C, int32 little endian
-//   [16]    Batterie %
-//   [17]    Alarm-Flag
-// Gibt false zurueck, wenn die Daten nicht zu diesem Format passen.
+// Rohdaten einer BLE-Werbung, vom BLE-Stack befuellt.
+struct Advertisement {
+  uint64_t address = 0;          // BLE-Adresse, z.B. 0x1230AF010203 fuer 12:30:AF:01:02:03
+  const uint8_t* mfr = nullptr;  // Manufacturer Data INKLUSIVE 2 Byte Company-ID (little endian)
+  size_t mfrLen = 0;
+  const char* name = "";         // Geraetename (darf leer sein)
+  uint16_t services[4] = {0, 0, 0, 0};  // beworbene 16-Bit-Service-UUIDs
+  uint8_t serviceCount = 0;
+  bool hasService(uint16_t uuid) const;
+};
+
+// Erkennt das Sensorformat und dekodiert. false = kein (bekannter) Reifensensor.
+bool decodeAdvertisement(const Advertisement& adv, SensorReading& out);
+
+// Nur Type A (der verbreitetste). 18 Byte inkl. Company-ID:
+//   [0..1] 0x00 0x01 | [2..7] Adresse | [8..11] Druck Pa (u32 LE)
+//   [12..15] Temperatur 1/100 Grad (i32 LE) | [16] Batterie % | [17] Alarm
 bool decodeManufacturerData(const uint8_t* data, size_t len, SensorReading& out);
+
+// Batterie-% aus Zellspannung (CR2032-Entladekurve)
+uint8_t batteryPercentFromVoltage(float volts);
 
 // Formatiert die letzten 3 Byte der ID als "AB:CD:EF" (buf >= 9 Zeichen).
 void formatShortId(uint64_t id, char* buf, size_t bufLen);
@@ -55,6 +78,14 @@ struct Settings {
   bool buzzer = true;
   bool demo = false;
   uint8_t mode = ROAD;
+  // --- Neigungsmesser
+  float level[3] = {0.0f, 0.0f, 1.0f};  // Schwerkraftvektor des Sensors bei ebenem Fahrzeug
+  uint8_t mountQuarter = 0;             // Einbaulage: Vorwaertsachse um 0/90/180/270 Grad gedreht
+  uint8_t tiltWarnRoll = 25;            // Warnung Seitenneigung ab ... Grad
+  uint8_t tiltWarnPitch = 30;           // Warnung Laengsneigung ab ... Grad
+  uint16_t wheelbaseCm = 367;           // Radstand (W906: 325 / 367 / 432 cm)
+  uint16_t trackCm = 171;               // Spurweite
+  uint8_t volume = 160;                 // Lautstaerke 0..255
 };
 
 void clampSettings(Settings& s);
@@ -136,5 +167,31 @@ class AlarmManager {
   uint8_t current_[WHEEL_COUNT] = {0, 0, 0, 0};
   uint8_t acked_[WHEEL_COUNT] = {0, 0, 0, 0};
 };
+
+// ---------------------------------------------------------------- Neigung
+struct Vec3 {
+  float x, y, z;
+};
+
+// Rechnet Beschleunigungswerte eines beliebig eingebauten Lagesensors in
+// Fahrzeug-Neigungswinkel um. Kalibriert wird im Stand auf ebener Flaeche.
+class TiltCalc {
+ public:
+  // level: Messwert bei ebenem Fahrzeug. mountQuarter: Vorwaertsrichtung in 90-Grad-Schritten
+  // gegenueber der Sensor-X-Achse drehen (falls Neigung "falsch herum" angezeigt wird).
+  bool setup(Vec3 level, uint8_t mountQuarter);
+  // roll  > 0: rechte Seite tiefer.   pitch > 0: Front hoeher (bergauf).
+  void compute(Vec3 accel, float& rollDeg, float& pitchDeg) const;
+
+ private:
+  Vec3 up_{0, 0, 1}, fwd_{1, 0, 0}, left_{0, 1, 0};
+};
+
+// Wie viel cm muss jedes Rad angehoben werden (Auffahrkeil), damit das Fahrzeug eben steht?
+// Das hoechste Rad bekommt 0. Reihenfolge wie Wheel: VL, VR, HL, HR.
+void levelingLifts(float rollDeg, float pitchDeg, float wheelbaseCm, float trackCm, float liftCm[WHEEL_COUNT]);
+
+// Warnung mit 2 Grad Hysterese
+bool tiltWarning(bool wasWarning, float rollDeg, float pitchDeg, float warnRoll, float warnPitch);
 
 }  // namespace tpms

@@ -16,34 +16,7 @@ const char* wheelName(Wheel w) {
 
 const char* modeName(Mode m) { return m == OFFROAD ? "OFFROAD" : "STRASSE"; }
 
-// ---------------------------------------------------------------- Dekoder
-static uint32_t readU32LE(const uint8_t* p) {
-  return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
-}
-
-bool decodeManufacturerData(const uint8_t* d, size_t len, SensorReading& out) {
-  if (d == nullptr || len != 18) return false;
-  if (d[0] != 0x00 || d[1] != 0x01) return false;
-
-  uint64_t id = 0;
-  for (int i = 2; i < 8; ++i) id = (id << 8) | d[i];
-
-  uint32_t pa = readU32LE(d + 8);
-  int32_t centiC = (int32_t)readU32LE(d + 12);
-
-  float bar = pa / 100000.0f;
-  float tempC = centiC / 100.0f;
-  // Plausibilitaet: kaputte/fremde Pakete verwerfen
-  if (bar < 0.0f || bar > 12.0f) return false;
-  if (tempC < -50.0f || tempC > 150.0f) return false;
-
-  out.id = id;
-  out.pressureBar = bar;
-  out.temperatureC = tempC;
-  out.batteryPct = d[16] > 100 ? 100 : d[16];
-  out.sensorAlarm = d[17] != 0;
-  return true;
-}
+// Dekoder: siehe TpmsDecoders.cpp
 
 void formatShortId(uint64_t id, char* buf, size_t bufLen) {
   snprintf(buf, bufLen, "%02X:%02X:%02X", (unsigned)((id >> 16) & 0xFF), (unsigned)((id >> 8) & 0xFF),
@@ -69,6 +42,17 @@ void clampSettings(Settings& s) {
   s.leakDeciBar = clampT<uint8_t>(s.leakDeciBar, 1, 20);
   s.leakMinutes = clampT<uint8_t>(s.leakMinutes, 1, 15);
   if (s.mode >= MODE_COUNT) s.mode = ROAD;
+  s.mountQuarter &= 3;
+  s.tiltWarnRoll = clampT<uint8_t>(s.tiltWarnRoll, 5, 45);
+  s.tiltWarnPitch = clampT<uint8_t>(s.tiltWarnPitch, 5, 45);
+  s.wheelbaseCm = clampT<uint16_t>(s.wheelbaseCm, 150, 600);
+  s.trackCm = clampT<uint16_t>(s.trackCm, 100, 250);
+  float n2 = s.level[0] * s.level[0] + s.level[1] * s.level[1] + s.level[2] * s.level[2];
+  if (!(n2 > 0.25f && n2 < 4.0f)) {  // kein sinnvoller Schwerkraftvektor -> zuruecksetzen
+    s.level[0] = 0;
+    s.level[1] = 0;
+    s.level[2] = 1;
+  }
 }
 
 float targetFor(const Settings& s, Mode m, Wheel w) { return s.target[m][w < RL ? 0 : 1]; }
