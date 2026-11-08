@@ -47,6 +47,13 @@ void clampSettings(Settings& s) {
   s.tiltWarnPitch = clampT<uint8_t>(s.tiltWarnPitch, 5, 45);
   s.wheelbaseCm = clampT<uint16_t>(s.wheelbaseCm, 150, 600);
   s.trackCm = clampT<uint16_t>(s.trackCm, 100, 250);
+  s.compassOffsetDeg = clampT<int16_t>(s.compassOffsetDeg, -180, 180);
+  if (!(s.qnhPa > 85000.0f && s.qnhPa < 110000.0f)) s.qnhPa = 101325.0f;
+  for (int i = 0; i < 3; ++i)
+    if (!(s.magOffset[i] > -2000.0f && s.magOffset[i] < 2000.0f)) {
+      s.magOffset[0] = s.magOffset[1] = s.magOffset[2] = 0;
+      s.magCalibrated = false;
+    }
   float n2 = s.level[0] * s.level[0] + s.level[1] * s.level[1] + s.level[2] * s.level[2];
   if (!(n2 > 0.25f && n2 < 4.0f)) {  // kein sinnvoller Schwerkraftvektor -> zuruecksetzen
     s.level[0] = 0;

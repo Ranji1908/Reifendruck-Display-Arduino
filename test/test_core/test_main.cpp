@@ -336,6 +336,86 @@ void test_settings_tilt_clamp() {
   TEST_ASSERT_TRUE(s.wheelbaseCm == 150);
 }
 
+// ---- Kompass
+void test_compass_heading_flat() {
+  TiltCalc t;
+  t.setup({0, 0, 1}, 0);
+  const Vec3 g = {0, 0, 1};
+  // Erdfeld: horizontal nach Norden, steil nach unten (Mitteleuropa ca. 65 Grad Inklination)
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, 0.0f, t.heading({20, 0, -44}, g));    // Front zeigt nach Norden
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, 90.0f, t.heading({0, 20, -44}, g));   // Norden links -> Kurs Ost
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, 180.0f, t.heading({-20, 0, -44}, g));
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, 270.0f, t.heading({0, -20, -44}, g));
+  TEST_ASSERT_EQUAL_STRING("O", compassPoint(90));
+  TEST_ASSERT_EQUAL_STRING("N", compassPoint(350));
+  TEST_ASSERT_EQUAL_STRING("NW", compassPoint(315));
+}
+
+void test_compass_tilt_compensation() {
+  // Fahrzeug steht 15 Grad bergauf (Front hoch), Front zeigt nach Osten.
+  TiltCalc t;
+  t.setup({0, 0, 1}, 0);
+  const float a = 15 * D2R;
+  Vec3 g = {sinf(a), 0, cosf(a)};  // "oben" im Fahrzeugsystem
+  // Erdfeld im Weltsystem (N,W,oben) = (20, 0, -44); Fahrzeug Kurs Ost:
+  // Welt-Nord liegt links (+y), dazu Nickung um die y-Achse. Vertikalanteil kippt mit:
+  Vec3 m = {-44 * sinf(a), 20, -44 * cosf(a)};
+  TEST_ASSERT_FLOAT_WITHIN(1.0f, 90.0f, t.heading(m, g));
+}
+
+void test_compass_correction_and_calibrator() {
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 5.0f, applyCompassCorrection(355, 10, false));
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 270.0f, applyCompassCorrection(90, 0, true));
+  MagCalibrator c;
+  TEST_ASSERT_FALSE(c.usable());
+  // Kreisfahrt mit Stoerfeld-Offset (10, -5, 3)
+  for (int i = 0; i < 36; ++i) {
+    float h = i * 10 * D2R;
+    c.add({10 + 25 * cosf(h), -5 + 25 * sinf(h), 3 - 44});
+    c.addHeadingSample(i * 10.0f);
+  }
+  TEST_ASSERT_TRUE(c.usable());
+  Vec3 o = c.offset();
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, 10.0f, o.x);
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, -5.0f, o.y);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.0f, c.coverage());
+}
+
+// ---- Luftdruck
+void test_bmp280_datasheet_example() {
+  // Rechenbeispiel aus dem Bosch-Datenblatt
+  const uint8_t raw[24] = {0x70, 0x6B, 0x43, 0x67, 0x18, 0xFC, 0x7D, 0x8E, 0x43, 0xD6, 0xD0, 0x0B,
+                           0x27, 0x0B, 0x8C, 0x00, 0xF9, 0xFF, 0x8C, 0x3C, 0xF8, 0xC6, 0x70, 0x17};
+  Bmp280Calib c;
+  bmp280ParseCalib(raw, c);
+  TEST_ASSERT_TRUE(c.T1 == 27504 && c.T2 == 26435 && c.T3 == -1000 && c.P1 == 36477);
+  TEST_ASSERT_TRUE(c.P6 == -7 && c.P9 == 6000);
+  float t, p;
+  TEST_ASSERT_TRUE(bmp280Compensate(c, 519888, 415148, t, p));
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 25.08f, t);
+  TEST_ASSERT_FLOAT_WITHIN(1.0f, 100653.27f, p);
+}
+
+void test_altitude() {
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, 0.0f, altitudeFromPressure(101325, 101325));
+  TEST_ASSERT_FLOAT_WITHIN(3.0f, 1000.0f, altitudeFromPressure(89875, 101325));  // Normatmosphaere: 1000 m
+  float qnh = qnhFromAltitude(95000, 540);
+  TEST_ASSERT_FLOAT_WITHIN(1.0f, 540.0f, altitudeFromPressure(95000, qnh));
+}
+
+void test_pressure_trend() {
+  PressureTrend tr;
+  TEST_ASSERT_FALSE(tr.valid());
+  uint32_t t = 0;
+  for (int i = 0; i <= 18; ++i) {  // 3 h, alle 10 min, insgesamt -4 hPa
+    tr.add(101300.0f - i * (400.0f / 18), t);
+    t += 600000UL;
+  }
+  TEST_ASSERT_TRUE(tr.valid());
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, -4.0f, tr.changeHpa3h());
+  TEST_ASSERT_EQUAL_STRING("STURM?", tr.text());
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_decode_known_packet);
@@ -358,5 +438,11 @@ int main(int, char**) {
   RUN_TEST(test_leveling_lifts);
   RUN_TEST(test_tilt_warning_hysteresis);
   RUN_TEST(test_settings_tilt_clamp);
+  RUN_TEST(test_compass_heading_flat);
+  RUN_TEST(test_compass_tilt_compensation);
+  RUN_TEST(test_compass_correction_and_calibrator);
+  RUN_TEST(test_bmp280_datasheet_example);
+  RUN_TEST(test_altitude);
+  RUN_TEST(test_pressure_trend);
   return UNITY_END();
 }

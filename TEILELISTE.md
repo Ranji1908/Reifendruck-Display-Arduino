@@ -9,7 +9,7 @@ schmaler Rahmen (**53 × 30 mm**), dahinter verschwindet das Gerät in einem rec
 von **45 × 22,5 mm** (32 mm Einbautiefe). 1,14"-Farbdisplay (240 × 135), Drehknopf mit Taster,
 Summer, Bluetooth – und **6–36 V Eingang**: direkt ans Bordnetz, kein USB-Adapter nötig.
 
-![Vorschau](docs/bilder/vorschau_reifen.png)
+![Vorschau aller Seiten](docs/bilder/uebersicht.png)
 
 ## Einkaufsliste
 
@@ -18,7 +18,7 @@ Summer, Bluetooth – und **6–36 V Eingang**: direkt ans Bordnetz, kein USB-Ad
 | 1 | **M5Stack DinMeter v1.1** (Artikel K134-V11) | das komplette Gerät | v1.1 mit StampS3A ist die aktuelle Version. | 25–35 € |
 | 2 | **4× BLE-Ventilkappen-Reifensensoren** | Druck + Temperatur je Rad | Muss eine der Apps unten nutzen. **Messbereich mind. 6 bar (87 psi)** – der Sprinter fährt hinten über 4 bar. Mit Kontermuttern. | 25–45 € |
 | 3 | **Stromanschluss** | an Zündungsplus | Sicherungsabgriff („Add-A-Fuse“, Sicherungstyp im Sprinter vorher nachschauen), **2-A-Sicherung**, ca. 2 m Kabel 2 × 0,5 mm², Ringöse für Masse. Anschlussklemme am DinMeter prüfen (Doku/Lieferumfang). | 10 € |
-| 4 | **M5Stack Unit IMU** (MPU6886, Artikel U095) – *optional* | Neigungsanzeige + Ausrichten | Wird per Kabel in **Port A** gesteckt, kein Löten. Ohne sie läuft die Reifendruck-Anzeige ganz normal. | 7–10 € |
+| 4 | **M5Stack Unit Mini IMU-Pro** (BMI270 + BMM150 + BMP280, Artikel U171) – *sehr empfohlen* | Neigung, Ausrichten, **Kompass**, **Höhe, Luftdruck/Wetter, Innentemperatur** | Wird per beiliegendem Kabel in **Port A** gesteckt, kein Löten. Ohne sie laufen Reifendruck, Reifentemperatur und Uhr ganz normal. | 7–10 € |
 | 5 | **Träger-Blende** | worin das Display sitzt | z. B. eine **1-DIN-Blindblende** (Radioschacht-Blende) für einen freien DIN-Schacht, oder eine Blindabdeckung/Fachabdeckung. Kostet wenig – geht beim Ausschnitt was schief, einfach neu kaufen. | 5–15 € |
 
 **Gesamt: ca. 65–115 €.**
@@ -32,7 +32,8 @@ Summer, Bluetooth – und **6–36 V Eingang**: direkt ans Bordnetz, kein USB-Ad
 3. Gerät von vorne einsetzen und mit den **Schraublöchern** oder **doppelseitigem Klebeband** fixieren
    (beides sieht der Hersteller vor).
 4. Strom von Zündungsplus über die 2-A-Sicherung an den 6–36-V-Eingang, Masse an einen Massepunkt.
-5. Die **Unit IMU** (falls gekauft) fest hinter die Verkleidung kleben – sie muss starr sitzen.
+5. Die **Unit Mini IMU-Pro** fest hinter die Verkleidung kleben – sie muss starr sitzen.
+   Für den Kompass möglichst **weg von Lautsprechern, Motoren und dicken Stromkabeln** (Magnetfelder).
 6. Danach im Menü: Sensoren anlernen, Neigung nullen (siehe README).
 
 > ⚠️ **Temperatur:** M5Stack gibt als Betriebstemperatur **0–40 °C** an. Im Auto wird es im Sommer

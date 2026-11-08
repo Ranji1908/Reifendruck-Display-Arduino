@@ -1,26 +1,32 @@
-# Reifendruck- und Neigungsanzeige für den Sprinter W906
+# Bordinstrument für den Sprinter W906 – Reifendruck, Neigung, Kompass
 
 Ein kleines Einbau-Display im **1/32-DIN-Normmaß** (Rahmen 53 × 30 mm, Ausschnitt 45 × 22,5 mm) auf
-Basis des **M5Stack DinMeter v1.1** – sitzt bündig in einer Blende wie ein Zusatzinstrument: Reifendruck aller 4 Räder, Umschaltung
-**Straße/Offroad** mit eigenen Solldrücken, Warnungen bei Druckverlust – dazu **Neigungsmesser**
-fürs Gelände und **Ausricht-Hilfe** für den Stellplatz.
+Basis des **M5Stack DinMeter v1.1** – im **Retro-Look in Bernstein-Gelb**: 7-Segment-Zahlen, Pixelschrift,
+Warnungen invertiert. Reifendruck aller 4 Räder mit **Straße/Offroad**-Solldrücken und Warnungen,
+dazu Neigungsmesser, Kompass, Höhe/Wetter/Uhr und Stellplatz-Ausrichtung.
 
 - 🛒 **Was kaufen & wie einbauen?** → [TEILELISTE.md](TEILELISTE.md)
 
-![Vorschau Hauptseite](docs/bilder/vorschau_reifen.png) ![Vorschau Alarm](docs/bilder/vorschau_alarm.png)
+![Alle Seiten](docs/bilder/uebersicht.png)
 
-*(Vorschau nachgezeichnet – Positionen und Farben wie in der Firmware, Schrift angenähert.)*
+*(Vorschau nachgezeichnet – Geometrie wie in der Firmware, Pixelschrift angenähert.)*
 
-## Die drei Seiten
+## Die Seiten (Knopf drehen)
 
-| REIFEN | NEIGUNG | AUSRICHTEN |
-|---|---|---|
-| Transporter von oben, an jeder Ecke Druck und Soll. Oben rechts der wichtigste Status. | Heck- und Seitenansicht kippen live mit, Gradzahl, Warnung ab einstellbarem Winkel. | Libelle + **wie viele cm** unter welches Rad müssen (Auffahrkeile), bis der Camper eben steht. |
+| # | Seite | Inhalt | braucht |
+|---|---|---|---|
+| 1 | **DRUCK** | Transporter quer (Front rechts), an jeder Ecke Druck in bar und Soll. Alarm: Rad-Feld blinkt invertiert. | Reifensensoren |
+| 2 | **REIFENTEMP** | Temperatur jedes Reifens und Batteriestand der Sensoren | Reifensensoren |
+| 3 | **NEIGUNG** | Heck- und Seitenansicht kippen mit, Gradzahlen, Warnung ab einstellbarem Winkel | Mini IMU-Pro |
+| 4 | **KOMPASS** | Kurs in Grad, Himmelsrichtung und laufendes Kompassband | Mini IMU-Pro |
+| 5 | **BORD** | Höhe über NN, Uhrzeit, Luftdruck mit Wettertrend, Innentemperatur | Mini IMU-Pro (Uhr ist eingebaut) |
+| 6 | **AUSRICHTEN** | Stellplatz-Hilfe: Libelle + **wie viele cm unter welches Rad** (Auffahrkeile), bis der Camper eben steht | Mini IMU-Pro |
 
 ## So funktioniert's
 
 ```
- 4× BLE-Ventilkappen-Sensor ──Bluetooth──►  M5Stack DinMeter  ◄──Port A── Unit IMU (Neigung, optional)
+ 4× BLE-Ventilkappen-Sensor ──Bluetooth──►  M5Stack DinMeter  ◄──Port A── Unit Mini IMU-Pro
+                                              │                       (Lage, Kompass, Luftdruck)
                                               │
                          Zündungsplus 12 V ───┘ (6–36-V-Eingang, 2-A-Sicherung)
 ```
@@ -38,14 +44,15 @@ Die Sensoren senden Druck, Temperatur und Batterie per Bluetooth; das Display h�
 
 | Wo | Aktion | Wirkung |
 |---|---|---|
-| Anzeige | **drehen** | Seite wechseln: Reifen → Neigung → Ausrichten |
+| Anzeige | **drehen** | Seite wechseln (6 Seiten, siehe oben) |
 | | **kurz drücken** | Straße ⇄ Offroad (bei aktivem Alarm: quittieren) |
 | | **lang drücken** | Menü |
 | Menü | drehen / kurz / lang | wählen / ändern & speichern / zurück |
 
 **Menü:** Solldruck Straße vorn/hinten, Offroad vorn/hinten · Warn-, Kritisch-, Überdruck-Schwelle ·
 Leck-Erkennung · Sensoren anlernen · Neigung nullen · Einbaulage · Warnwinkel Seite/Längs ·
-Radstand/Spurweite · Helligkeit · Lautstärke · Warnton · Demo.
+Kompass kalibrieren / Korrektur / spiegeln · Höhe setzen · Uhr stellen · Radstand/Spurweite ·
+Helligkeit · Lautstärke · Warnton · Demo.
 
 > ⚠️ Die Solldrücke ab Werk (Straße 3,5/4,0 bar, Offroad 2,5/2,8 bar) sind **Platzhalter**.
 > Trag die Werte aus der Reifendrucktabelle deines Sprinters ein (Tankklappe/B-Säule).
@@ -58,6 +65,12 @@ Radstand/Spurweite · Helligkeit · Lautstärke · Warnton · Demo.
    „bergauf“ zeigen. Zeigt sie „bergab“ oder Seitenneigung, im Menü die *Einbaulage* um 90°-Schritte
    ändern, bis es stimmt.
 4. **Radstand** eintragen (W906: 325 / 367 / 432 cm) – wichtig für die cm-Angaben beim Ausrichten.
+5. **Kompass kalibrieren:** Menü → *Kompass Kal* → auf einem Parkplatz langsam 1–2 Kreise fahren, bis
+   die Anzeige ≥ 75 % zeigt, dann drücken. Danach mit einem Handy-Kompass vergleichen und bei Bedarf
+   *Kompass +-* (Feinkorrektur) bzw. *Komp Spieg* (dreht falsch herum) einstellen.
+6. **Höhe setzen:** Menü → *Höhe* → bekannte Höhe eintragen (z. B. vom Navi). Der Luftdruck ändert sich mit
+   dem Wetter, deshalb gelegentlich nachstellen.
+7. **Uhr stellen:** Menü → *Uhr Std* / *Uhr Min*.
 
 ## Warnlogik
 
@@ -87,7 +100,10 @@ Radstand/Spurweite · Helligkeit · Lautstärke · Warnton · Demo.
 
 - Sensor wird nicht gefunden: `#define DEBUG_BLE 1` oben in `include/BleTpms.h` bzw. als Build-Flag,
   dann `pio device monitor` – zeigt alle Bluetooth-Daten in der Nähe.
-- „Kein Lagesensor“: Unit IMU in **Port A** stecken und neu starten.
+- „Kein Lagesensor“ / „Kein Magnetsensor“: Unit Mini IMU-Pro in **Port A** stecken und neu starten.
+- Kompass ungenau: im Stahlblech-Transporter normal (±10–20°). Neu kalibrieren, Sensor weiter weg von
+  Lautsprechern/Kabeln montieren. Der Kurs ist magnetisch (Abweichung in Deutschland ca. 3–4°).
+- Wettertrend nur im Stand aussagekräftig – beim Fahren über Berge ändert sich der Luftdruck mit der Höhe.
 - Drehknopf springt 2 Einträge pro Rastung: `ENC_COUNTS_PER_DETENT` in `src/dinmeter/main.cpp` auf 2 setzen.
 
 ## Projektstruktur

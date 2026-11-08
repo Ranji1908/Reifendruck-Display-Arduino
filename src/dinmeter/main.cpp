@@ -1,14 +1,17 @@
-// Reifendruck- und Neigungsanzeige fuer den Sprinter W906 – Variante M5Stack DinMeter v1.1
+// Bordinstrument fuer den Sprinter W906 – M5Stack DinMeter v1.1, Retro-Design in Bernstein-Gelb
 //
-// Hardware: M5Stack DinMeter v1.1 (ESP32-S3, 1,14"-Display 240x135, Drehknopf mit Taster,
-//           Summer, 6–36 V Eingang, Einbau im 1/32-DIN-Ausschnitt 45 x 22,5 mm)
+// Hardware: M5Stack DinMeter v1.1 (ESP32-S3, 1,14"-Display 240x135, Drehknopf, Summer, Uhr,
+//           6–36 V, Einbau im 1/32-DIN-Ausschnitt 45 x 22,5 mm)
 //           + 4 BLE-Ventilkappen-Sensoren
-//           + optional M5Stack Unit IMU an Port A fuer die Neigung
+//           + M5Stack Unit Mini IMU-Pro an Port A (Lage, Kompass, Luftdruck) – optional
 //
-// Bedienung:
-//   Knopf drehen    -> Seite wechseln: REIFEN / NEIGUNG / AUSRICHTEN
-//   kurz druecken   -> Strasse <-> Offroad   (bei Alarm: Alarm quittieren)
-//   lang druecken   -> Menue (drehen = waehlen, kurz = aendern/OK, lang = zurueck)
+// Seiten (Knopf drehen):
+//   DRUCK -> REIFENTEMP -> NEIGUNG -> KOMPASS -> BORD (Hoehe/Wetter/Uhr) -> AUSRICHTEN
+// Knopf kurz: Strasse <-> Offroad (bei Alarm: quittieren)      Knopf lang: Menue
+//
+// Gestaltung: alles in einer Farbe (Bernstein), Zahlen als 7-Segment mit schwach sichtbaren
+// unbeleuchteten Segmenten, Beschriftung in Pixelschrift, Warnungen invertiert.
+// Vorschau aller Seiten: docs/bilder/uebersicht.png
 
 #include <M5DinMeter.h>
 #include <Preferences.h>
@@ -18,8 +21,7 @@
 
 using namespace tpms;
 
-// Zaehlimpulse des Drehknopfs pro Rastung (springt er 2 Eintraege pro Klick: auf 2 aendern)
-#ifndef ENC_COUNTS_PER_DETENT
+#ifndef ENC_COUNTS_PER_DETENT  // springt der Knopf 2 Eintraege pro Klick: auf 2 setzen
 #define ENC_COUNTS_PER_DETENT 4
 #endif
 #define MENU_TIMEOUT_MS 30000
@@ -27,16 +29,12 @@ using namespace tpms;
 #define W 240
 #define H 135
 
-// ============================================================ Farben
-static const uint16_t C_BG = TFT_BLACK;
-static const uint16_t C_TEXT = TFT_WHITE;
-static const uint16_t C_DIM = 0x7BEF;   // grau
-static const uint16_t C_DARK = 0x2945;  // dunkelgrau
-static const uint16_t C_OK = 0x07E8;    // gruen
-static const uint16_t C_WARN = 0xFD20;  // orange
-static const uint16_t C_CRIT = 0xF800;  // rot
-static const uint16_t C_ROAD = 0x5D7F;  // hellblau
-static const uint16_t C_OFF = 0xFE60;   // gelb-orange
+// ============================================================ Farben (RGB565)
+static const uint16_t BG = 0x0000;
+static const uint16_t AMB = 0xFDA0;    // Bernstein hell
+static const uint16_t MID = 0xABC0;    // Bernstein gedimmt (Beschriftung)
+static const uint16_t GHOST = 0x1880;  // unbeleuchtete Segmente
+static const uint16_t NOGHOST = 0x0001;  // Marker: keine Geister-Segmente zeichnen
 
 static M5Canvas canvas(&M5.Display);
 
@@ -48,14 +46,25 @@ static State states[WHEEL_COUNT] = {State::NotPaired, State::NotPaired, State::N
 static AlarmManager alarms;
 static Preferences prefs;
 
+// Lage / Kompass
 static TiltCalc tilt;
-static bool imuOk = false;
+static bool imuOk = false, magOk = false;
 static Vec3 accelFilt = {0, 0, 1};
-static float rollDeg = 0, pitchDeg = 0;
+static Vec3 magRaw = {0, 0, 0};
+static float rollDeg = 0, pitchDeg = 0, headingDeg = 0;
+static float headSin = 0, headCos = 1;  // geglaetteter Kurs
 static bool tiltWarn = false;
+static MagCalibrator magCal;
 
-enum class Screen : uint8_t { Main, Menu, Edit, Pair, Calib };
-enum Page : uint8_t { P_TIRES, P_TILT, P_LEVEL, PAGE_COUNT };
+// Luftdruck / Uhr
+static uint8_t bmpAddr = 0;
+static Bmp280Calib bmpCal;
+static float airTempC = NAN, airPa = NAN;
+static PressureTrend trend;
+static bool rtcOk = false;
+
+enum class Screen : uint8_t { Main, Menu, Edit, Pair, Calib, MagCalib };
+enum Page : uint8_t { P_TIRES, P_TEMPS, P_TILT, P_COMPASS, P_BORD, P_LEVEL, PAGE_COUNT };
 static Screen screen = Screen::Main;
 static int page = P_TIRES;
 static uint32_t overlayUntil = 0;
@@ -64,6 +73,9 @@ static uint32_t lastInputMs = 0;
 
 static Mode currentMode() { return (Mode)settings.mode; }
 static bool isPaired(int w) { return settings.demo || sensorIds[w] != 0; }
+static bool haveTilt() { return imuOk || settings.demo; }
+static bool haveMag() { return magOk || settings.demo; }
+static bool haveAir() { return bmpAddr != 0 || settings.demo; }
 
 static void showOverlay(const char* text) {
   overlayText = text;
@@ -71,7 +83,7 @@ static void showOverlay(const char* text) {
 }
 
 // ============================================================ Speicher
-static const uint8_t SETTINGS_VERSION = 2;
+static const uint8_t SETTINGS_VERSION = 3;
 
 static void applySettings() {
   M5.Display.setBrightness(settings.contrast);
@@ -143,20 +155,351 @@ static void click() {
   if (!beeper.repeat && settings.buzzer) M5.Speaker.tone(6000, 12);
 }
 
-// ============================================================ Menue-Daten
+// ============================================================ Zeichnen: Grundbausteine
+static bool blinkOn() { return (millis() / 400) % 2 == 0; }
+
+enum Align : uint8_t { AL_L, AL_R, AL_C };
+
+static void upcase(char* s) {
+  for (; *s; ++s)
+    if (*s >= 'a' && *s <= 'z') *s -= 32;
+}
+
+// Pixelschrift (6x8-Zeichenzelle, size = Vergroesserung), immer in Grossbuchstaben
+static void ptext(const char* s, int x, int y, int size, uint16_t col, Align al = AL_L) {
+  char buf[40];
+  snprintf(buf, sizeof(buf), "%s", s);
+  upcase(buf);
+  int w = (int)strlen(buf) * 6 * size;
+  if (al == AL_R) x -= w;
+  else if (al == AL_C) x -= w / 2;
+  canvas.setFont(&fonts::Font0);
+  canvas.setTextSize(size);
+  canvas.setTextDatum(top_left);
+  canvas.setTextColor(col);
+  canvas.drawString(buf, x, y);
+  canvas.setTextSize(1);
+}
+
+// 7-Segment-Ziffern. Unterstuetzt 0-9, '-', ' ', '.', ':'
+static void segMetrics(int h, int& w, int& t, int& sp) {
+  t = h / 9 < 2 ? 2 : h / 9;
+  w = h / 2;
+  sp = t + 2;
+}
+
+static int segWidth(const char* s, int h) {
+  int w, t, sp, tot = 0;
+  segMetrics(h, w, t, sp);
+  for (const char* p = s; *p; ++p) tot += (*p == '.' || *p == ':') ? t + sp : w + sp;
+  return tot > 0 ? tot - sp : 0;
+}
+
+static uint8_t segBits(char c) {
+  switch (c) {
+    case '0': return 0x3F;
+    case '1': return 0x06;
+    case '2': return 0x5B;
+    case '3': return 0x4F;
+    case '4': return 0x66;
+    case '5': return 0x6D;
+    case '6': return 0x7D;
+    case '7': return 0x07;
+    case '8': return 0x7F;
+    case '9': return 0x6F;
+    case '-': return 0x40;
+    default: return 0;
+  }
+}
+
+static void seg(const char* s, int x, int y, int h, uint16_t on, uint16_t ghost = GHOST, Align al = AL_L) {
+  int w, t, sp;
+  segMetrics(h, w, t, sp);
+  int tw = segWidth(s, h);
+  if (al == AL_R) x -= tw;
+  else if (al == AL_C) x -= tw / 2;
+  for (const char* p = s; *p; ++p) {
+    if (*p == '.') {
+      canvas.fillRect(x, y + h - t, t, t, on);
+      x += t + sp;
+      continue;
+    }
+    if (*p == ':') {
+      canvas.fillRect(x, y + h / 3 - t / 2, t, t, on);
+      canvas.fillRect(x, y + 2 * h / 3 - t / 2, t, t, on);
+      x += t + sp;
+      continue;
+    }
+    uint8_t bits = segBits(*p);
+    int mid = y + h / 2 - t / 2;
+    int r[7][4] = {{x + t, y, w - 2 * t, t},
+                   {x + w - t, y + t, t, mid - (y + t)},
+                   {x + w - t, mid + t, t, (y + h - t) - (mid + t)},
+                   {x + t, y + h - t, w - 2 * t, t},
+                   {x, mid + t, t, (y + h - t) - (mid + t)},
+                   {x, y + t, t, mid - (y + t)},
+                   {x + t, mid, w - 2 * t, t}};
+    for (int i = 0; i < 7; ++i) {
+      uint16_t col = (bits >> i) & 1 ? on : ghost;
+      if (col != NOGHOST) canvas.fillRect(r[i][0], r[i][1], r[i][2], r[i][3], col);
+    }
+    x += w + sp;
+  }
+}
+
+static void dottedH(int x0, int x1, int y, int step, uint16_t col) {
+  for (int x = x0; x <= x1; x += step) canvas.drawPixel(x, y, col);
+}
+static void dottedV(int x, int y0, int y1, int step, uint16_t col) {
+  for (int y = y0; y <= y1; y += step) canvas.drawPixel(x, y, col);
+}
+
+static void header(const char* left, const char* right = nullptr, uint16_t rcol = MID) {
+  ptext(left, 1, 1, 1, AMB);
+  if (right) ptext(right, 239, 1, 1, rcol, AL_R);
+  dottedH(0, W - 1, 11, 3, MID);
+}
+
+// Polygon um (cx,cy) drehen (Grad, im Uhrzeigersinn) und als Drahtmodell zeichnen
+static void wirePoly(float cx, float cy, const int8_t (*pts)[2], int n, float deg, float k, uint16_t col) {
+  float s = sinf(deg * 0.0174533f), c = cosf(deg * 0.0174533f);
+  int px[8], py[8];
+  for (int i = 0; i < n && i < 8; ++i) {
+    px[i] = (int)lroundf(cx + k * (pts[i][0] * c - pts[i][1] * s));
+    py[i] = (int)lroundf(cy + k * (pts[i][0] * s + pts[i][1] * c));
+  }
+  for (int i = 0; i < n; ++i) canvas.drawLine(px[i], py[i], px[(i + 1) % n], py[(i + 1) % n], col);
+}
+
+// ============================================================ Transporter quer (Front rechts)
+// Bildschirm: rechts = vorne, oben = linke Fahrzeugseite.  -> VL oben rechts, VR unten rechts,
+// HL oben links, HR unten links
+static const int QX[4] = {196, 196, 44, 44};
+static const bool QTOP[4] = {true, false, true, false};
+
+static void drawVan(int cx, int cy) {
+  const int x0 = cx - 28, y0 = cy - 17, w = 56, h = 34;
+  canvas.drawRoundRect(x0, y0, w, h, 4, AMB);
+  canvas.drawFastVLine(x0 + 42, y0 + 3, h - 6, AMB);  // Windschutzscheibe
+  canvas.drawFastVLine(x0 + 36, y0 + 3, h - 6, MID);  // Kabine
+  canvas.fillTriangle(x0 + w + 3, cy - 4, x0 + w + 8, cy, x0 + w + 3, cy + 4, MID);  // Fahrtrichtung
+  const int wx[4] = {x0 + 40, x0 + 40, x0 + 6, x0 + 6}, wy[4] = {y0 - 4, y0 + h, y0 - 4, y0 + h};
+  for (int i = 0; i < WHEEL_COUNT; ++i) {
+    bool alarm = severity(states[i]) >= 2;
+    if (alarm && !blinkOn()) canvas.drawRect(wx[i], wy[i], 12, 4, AMB);
+    else canvas.fillRect(wx[i], wy[i], 12, 4, AMB);
+  }
+}
+
+// Ein Rad-Quadrant: Beschriftung aussen, 7-Segment-Wert in der Mitte, optional invertiert
+static void drawQuadrant(int w, const char* label, const char* value, bool invert, int segH = 44) {
+  const bool top = QTOP[w];
+  const int bx = QX[w] < 120 ? 0 : 152, by = top ? 13 : 72, bh = top ? 59 : 63;
+  uint16_t fg = AMB, gh = GHOST, lab = MID;
+  if (invert) {
+    canvas.fillRect(bx, by, 88, bh, AMB);
+    fg = BG;
+    gh = NOGHOST;
+    lab = BG;
+  }
+  ptext(label, bx + 4, top ? 15 : 124, 1, lab);
+  seg(value, QX[w], top ? 25 : 76, segH, fg, gh, AL_C);
+}
+
+// ============================================================ Seiten
+static void drawTiresPage() {
+  Wheel worst = alarms.worstWheel(states);
+  uint8_t worstSev = worst == WHEEL_COUNT ? 0 : severity(states[worst]);
+  char left[24], right[24];
+  snprintf(left, sizeof(left), "DRUCK  %s", modeName(currentMode()));
+  if (worstSev >= 1) {
+    snprintf(right, sizeof(right), "!! %s %s", wheelName(worst), stateText(states[worst]));
+    header(left, right, (worstSev >= 2 && !blinkOn()) ? BG : AMB);
+  } else {
+    header(left, "BAR");
+  }
+  drawVan(120, 67);
+
+  for (int w = 0; w < WHEEL_COUNT; ++w) {
+    State s = states[w];
+    uint8_t sev = severity(s);
+    bool noVal = s == State::NotPaired || s == State::NoData || !monitors[w].hasData();
+    char val[8], lab[24];
+    if (noVal) strcpy(val, "--");
+    else snprintf(val, sizeof(val), "%.1f", monitors[w].pressure());
+    if (sev > 0 || noVal) snprintf(lab, sizeof(lab), "%s %s", wheelName((Wheel)w), stateText(s));
+    else if (monitors[w].battery() < 20) snprintf(lab, sizeof(lab), "%s BATT %u%%", wheelName((Wheel)w), (unsigned)monitors[w].battery());
+    else snprintf(lab, sizeof(lab), "%s SOLL %.1f", wheelName((Wheel)w), targetFor(settings, currentMode(), (Wheel)w));
+    drawQuadrant(w, lab, val, sev >= 2 && blinkOn());
+  }
+}
+
+static void drawTempsPage() {
+  header("REIFENTEMP  GRAD C", "SENSOR-BATT");
+  drawVan(120, 67);
+  for (int w = 0; w < WHEEL_COUNT; ++w) {
+    bool noVal = states[w] == State::NotPaired || states[w] == State::NoData || !monitors[w].hasData();
+    char val[8], lab[24];
+    if (noVal) strcpy(val, "--");
+    else snprintf(val, sizeof(val), "%d", (int)lroundf(monitors[w].temperature()));
+    if (noVal) snprintf(lab, sizeof(lab), "%s %s", wheelName((Wheel)w), stateText(states[w]));
+    else snprintf(lab, sizeof(lab), "%s BATT %u%%", wheelName((Wheel)w), (unsigned)monitors[w].battery());
+    drawQuadrant(w, lab, val, false);
+  }
+}
+
+static void drawNoSensor(const char* title, const char* what) {
+  header(title);
+  ptext(what, W / 2, 50, 2, AMB, AL_C);
+  ptext("UNIT MINI IMU-PRO AN PORT A", W / 2, 80, 1, MID, AL_C);
+  ptext("STECKEN, NEU STARTEN", W / 2, 92, 1, MID, AL_C);
+}
+
+static void drawTiltPage() {
+  if (!haveTilt()) return drawNoSensor("NEIGUNG", "KEIN LAGESENSOR");
+  header("NEIGUNG", "GRAD");
+  dottedH(4, 115, 62, 4, MID);
+  dottedH(124, 235, 62, 4, MID);
+  uint16_t cr = (tiltWarn && fabsf(rollDeg) >= settings.tiltWarnRoll - 2 && !blinkOn()) ? BG : AMB;
+  uint16_t cp = (tiltWarn && fabsf(pitchDeg) >= settings.tiltWarnPitch - 2 && !blinkOn()) ? BG : AMB;
+
+  // Heckansicht (dreht mit der Seitenneigung: rechts tiefer = im Uhrzeigersinn)
+  static const int8_t rearBody[4][2] = {{-24, -24}, {24, -24}, {26, 16}, {-26, 16}};
+  static const int8_t rearWin[4][2] = {{-18, -18}, {18, -18}, {18, -8}, {-18, -8}};
+  static const int8_t rearWl[4][2] = {{-22, 16}, {-12, 16}, {-12, 24}, {-22, 24}};
+  static const int8_t rearWr[4][2] = {{12, 16}, {22, 16}, {22, 24}, {12, 24}};
+  wirePoly(60, 42, rearBody, 4, rollDeg, 0.8f, cr);
+  wirePoly(60, 42, rearWin, 4, rollDeg, 0.8f, cr);
+  wirePoly(60, 42, rearWl, 4, rollDeg, 0.8f, cr);
+  wirePoly(60, 42, rearWr, 4, rollDeg, 0.8f, cr);
+
+  // Seitenansicht, Front rechts (Front hoeher = gegen den Uhrzeigersinn)
+  static const int8_t sideBody[6][2] = {{-38, -24}, {18, -24}, {30, -10}, {40, -6}, {40, 16}, {-38, 16}};
+  static const int8_t sideWin[3][2] = {{18, -20}, {26, -10}, {18, -10}};
+  static const int8_t sideWr[4][2] = {{-30, 16}, {-18, 16}, {-18, 24}, {-30, 24}};
+  static const int8_t sideWf[4][2] = {{20, 16}, {32, 16}, {32, 24}, {20, 24}};
+  float pd = -pitchDeg;
+  wirePoly(180, 42, sideBody, 6, pd, 0.8f, cp);
+  wirePoly(180, 42, sideWin, 3, pd, 0.8f, cp);
+  wirePoly(180, 42, sideWr, 4, pd, 0.8f, cp);
+  wirePoly(180, 42, sideWf, 4, pd, 0.8f, cp);
+
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%.0f", fabsf(rollDeg));
+  seg(buf, 60, 70, 44, cr, GHOST, AL_C);
+  snprintf(buf, sizeof(buf), "%.0f", fabsf(pitchDeg));
+  seg(buf, 180, 70, 44, cp, GHOST, AL_C);
+  ptext(fabsf(rollDeg) < 1 ? "SEITE" : (rollDeg > 0 ? "SEITE R-TIEF" : "SEITE L-TIEF"), 60, 124, 1, MID, AL_C);
+  ptext(fabsf(pitchDeg) < 1 ? "LAENGS" : (pitchDeg > 0 ? "BERGAUF" : "BERGAB"), 180, 124, 1, MID, AL_C);
+}
+
+static void drawCompassPage() {
+  if (!haveMag()) return drawNoSensor("KOMPASS", "KEIN MAGNETSENSOR");
+  header("KOMPASS", settings.magCalibrated || settings.demo ? "KURS" : "BITTE KALIBRIEREN",
+         settings.magCalibrated || settings.demo ? MID : AMB);
+  int hdg = ((int)lroundf(headingDeg)) % 360;
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%03d", hdg);
+  seg(buf, 100, 18, 48, AMB, GHOST, AL_C);
+  ptext(compassPoint((float)hdg), 200, 30, 3, AMB, AL_C);
+
+  // Kompassband
+  const int y0 = 86;
+  canvas.drawFastHLine(0, y0, W, MID);
+  canvas.drawFastHLine(0, y0 + 40, W, MID);
+  for (int d = hdg - 70; d <= hdg + 70; ++d) {
+    int x = 120 + (int)lroundf((d - hdg) * 1.6f);
+    int dd = ((d % 360) + 360) % 360;
+    if (dd % 10 == 0) canvas.drawFastVLine(x, y0 + 30, 10, dd % 30 == 0 ? AMB : MID);
+    if (dd % 45 == 0) ptext(compassPoint((float)dd), x, y0 + 8, 2, AMB, AL_C);
+  }
+  canvas.fillTriangle(114, y0 + 1, 126, y0 + 1, 120, y0 + 8, AMB);
+}
+
+static void drawBordPage() {
+  char clock[8] = "--:--";
+  m5::rtc_time_t t;
+  if (rtcOk && M5.Rtc.getTime(&t) && t.hours >= 0) snprintf(clock, sizeof(clock), "%02d:%02d", t.hours, t.minutes);
+  header("BORD", clock);
+
+  char buf[12];
+  // Hoehe
+  ptext("HOEHE M", 4, 14, 1, MID);
+  if (haveAir() && !isnan(airPa)) snprintf(buf, sizeof(buf), "%d", (int)lroundf(altitudeFromPressure(airPa, settings.qnhPa)));
+  else strcpy(buf, "---");
+  seg(buf, 4, 25, 36, AMB);
+  // Uhr
+  ptext("UHR", 236, 14, 1, MID, AL_R);
+  seg(clock, 236, 25, 36, AMB, GHOST, AL_R);
+  // Luftdruck
+  ptext("LUFTDRUCK HPA", 4, 76, 1, MID);
+  if (haveAir() && !isnan(airPa)) snprintf(buf, sizeof(buf), "%d", (int)lroundf(airPa / 100.0f));
+  else strcpy(buf, "----");
+  seg(buf, 4, 87, 36, AMB);
+  // Temperatur
+  ptext("INNEN GRAD C", 236, 76, 1, MID, AL_R);
+  if (haveAir() && !isnan(airTempC)) snprintf(buf, sizeof(buf), "%d", (int)lroundf(airTempC));
+  else strcpy(buf, "--");
+  seg(buf, 236, 87, 36, AMB, GHOST, AL_R);
+
+  char tr[24];
+  snprintf(tr, sizeof(tr), "TREND: %s", trend.text());
+  ptext(tr, 4, 126, 1, AMB);
+}
+
+static void drawLevelPage() {
+  if (!haveTilt()) return drawNoSensor("AUSRICHTEN", "KEIN LAGESENSOR");
+  bool level = fabsf(rollDeg) < 0.5f && fabsf(pitchDeg) < 0.5f;
+  header("AUSRICHTEN", level ? "EBEN!" : "CM UNTERLEGEN", level ? AMB : MID);
+
+  // Libelle (Front rechts): Blase wandert zur hoeheren Seite
+  const int cx = 120, cy = 73, r = 40;
+  canvas.drawCircle(cx, cy, r, AMB);
+  canvas.drawCircle(cx, cy, 8, MID);
+  dottedH(cx - r, cx + r, cy, 4, MID);
+  dottedV(cx, cy - r, cy + r, 4, MID);
+  float bx = pitchDeg * 6.0f, by = -rollDeg * 6.0f;
+  float d = sqrtf(bx * bx + by * by);
+  if (d > r - 8) {
+    bx *= (r - 8) / d;
+    by *= (r - 8) / d;
+  }
+  canvas.fillCircle(cx + (int)bx, cy + (int)by, 7, AMB);
+
+  float lift[WHEEL_COUNT];
+  levelingLifts(rollDeg, pitchDeg, settings.wheelbaseCm, settings.trackCm, lift);
+  for (int w = 0; w < WHEEL_COUNT; ++w) {
+    char val[8], lab[12];
+    snprintf(val, sizeof(val), "%d", lift[w] < 0.5f ? 0 : (int)lroundf(lift[w]));
+    snprintf(lab, sizeof(lab), "%s CM", wheelName((Wheel)w));
+    ptext(lab, QX[w], QTOP[w] ? 15 : 124, 1, MID, AL_C);
+    seg(val, QX[w], QTOP[w] ? 26 : 78, 36, AMB, GHOST, AL_C);
+  }
+}
+
+// ============================================================ Menue
 enum MenuItem : uint8_t {
   M_ROAD_F, M_ROAD_R, M_OFF_F, M_OFF_R, M_WARN, M_CRIT, M_HIGH, M_LEAK_BAR, M_LEAK_MIN, M_PAIR,
-  M_CALIB, M_MOUNT, M_TILT_R, M_TILT_P, M_WB, M_TRACK, M_BRIGHT, M_VOL, M_SOUND, M_DEMO, M_BACK,
-  M_COUNT
+  M_CALIB, M_MOUNT, M_TILT_R, M_TILT_P, M_MAGCAL, M_MAGOFF, M_MAGMIR, M_ALT, M_HOUR, M_MIN,
+  M_WB, M_TRACK, M_BRIGHT, M_VOL, M_SOUND, M_DEMO, M_BACK, M_COUNT
 };
 static const char* const MENU_LABELS[M_COUNT] = {
-    "Soll Str. vorn", "Soll Str. hinten", "Soll Off. vorn", "Soll Off. hinten", "Warnung ab",
-    "Kritisch ab",    "Zu hoch ab",       "Leck: Verlust",  "Leck: Zeitraum",   "Sensoren anlernen",
-    "Neigung nullen", "Einbaulage",       "Warn. Seite",    "Warn. Laengs",     "Radstand",
-    "Spurweite",      "Helligkeit",       "Lautstaerke",    "Warnton",          "Demo-Modus",
-    "< Zurueck"};
+    "SOLL STR VO", "SOLL STR HI", "SOLL OFF VO", "SOLL OFF HI", "WARNUNG",    "KRITISCH",   "ZU HOCH",
+    "LECK BAR",    "LECK MIN",    "SENSOREN",    "NEIGUNG 0",   "EINBAULAGE", "WARN SEITE", "WARN LAENGS",
+    "KOMPASS KAL", "KOMPASS +-",  "KOMP SPIEG",  "HOEHE",       "UHR STD",    "UHR MIN",    "RADSTAND",
+    "SPURWEITE",   "HELLIGKEIT",  "LAUTSTAERKE", "WARNTON",     "DEMO",       "ZURUECK"};
+// Ausfuehrliche Titel fuer den Bearbeiten-Bildschirm
+static const char* const EDIT_TITLES[M_COUNT] = {
+    "SOLL STRASSE VORNE",  "SOLL STRASSE HINTEN", "SOLL OFFROAD VORNE", "SOLL OFFROAD HINTEN",
+    "WARNUNG UNTER SOLL",  "KRITISCH UNTER SOLL", "HINWEIS UEBER SOLL", "LECK: DRUCKVERLUST",
+    "LECK: ZEITRAUM",      "",                    "",                   "EINBAULAGE LAGESENSOR",
+    "WARNUNG SEITENNEIG.", "WARNUNG LAENGSNEIG.", "",                   "KOMPASS KORREKTUR",
+    "",                    "AKTUELLE HOEHE",      "UHR STUNDE",         "UHR MINUTE",
+    "RADSTAND",            "SPURWEITE",           "HELLIGKEIT",         "LAUTSTAERKE",
+    "",                    "",                    ""};
 static int menuIdx = 0, menuTop = 0;
-static const int MENU_ROWS = 3, ROW_H = 36, ROW_Y0 = 22;
+static const int MENU_ROWS = 5;
+static float editAltitude = 0;  // beim Bearbeiten der Hoehe
 
 static float* targetPtr(int item) {
   switch (item) {
@@ -168,31 +511,60 @@ static float* targetPtr(int item) {
   }
 }
 
-static void menuValueText(int item, char* buf, size_t n) {
+static int rtcField(bool hour) {
+  m5::rtc_time_t t;
+  if (!rtcOk || !M5.Rtc.getTime(&t) || t.hours < 0) return 0;
+  return hour ? t.hours : t.minutes;
+}
+
+// Wert als kurzer Text (Menue) bzw. als 7-Segment-tauglicher Text + Einheit (Editor)
+static void menuValue(int item, char* buf, size_t n, char* unit = nullptr, size_t un = 0) {
+  auto setUnit = [&](const char* u) {
+    if (unit) snprintf(unit, un, "%s", u);
+  };
+  setUnit("");
   if (float* t = targetPtr(item)) {
-    snprintf(buf, n, "%.1f bar", *t);
+    snprintf(buf, n, "%.1f", *t);
+    setUnit("BAR");
     return;
   }
   switch (item) {
-    case M_WARN: snprintf(buf, n, "-%u %%", (unsigned)settings.warnPct); break;
-    case M_CRIT: snprintf(buf, n, "-%u %%", (unsigned)settings.critPct); break;
-    case M_HIGH: snprintf(buf, n, "+%u %%", (unsigned)settings.highPct); break;
-    case M_LEAK_BAR: snprintf(buf, n, "%.1f bar", settings.leakDeciBar / 10.0f); break;
-    case M_LEAK_MIN: snprintf(buf, n, "%u min", (unsigned)settings.leakMinutes); break;
-    case M_MOUNT: snprintf(buf, n, "%u Grad", (unsigned)settings.mountQuarter * 90); break;
-    case M_TILT_R: snprintf(buf, n, "%u Grad", (unsigned)settings.tiltWarnRoll); break;
-    case M_TILT_P: snprintf(buf, n, "%u Grad", (unsigned)settings.tiltWarnPitch); break;
-    case M_WB: snprintf(buf, n, "%u cm", (unsigned)settings.wheelbaseCm); break;
-    case M_TRACK: snprintf(buf, n, "%u cm", (unsigned)settings.trackCm); break;
-    case M_BRIGHT: snprintf(buf, n, "%u %%", (unsigned)(settings.contrast * 100 / 255)); break;
-    case M_VOL: snprintf(buf, n, "%u %%", (unsigned)(settings.volume * 100 / 255)); break;
-    case M_SOUND: snprintf(buf, n, "%s", settings.buzzer ? "an" : "aus"); break;
-    case M_DEMO: snprintf(buf, n, "%s", settings.demo ? "an" : "aus"); break;
+    case M_WARN: snprintf(buf, n, "-%u", (unsigned)settings.warnPct), setUnit("%"); break;
+    case M_CRIT: snprintf(buf, n, "-%u", (unsigned)settings.critPct), setUnit("%"); break;
+    case M_HIGH: snprintf(buf, n, "%u", (unsigned)settings.highPct), setUnit("% UEBER"); break;
+    case M_LEAK_BAR: snprintf(buf, n, "%.1f", settings.leakDeciBar / 10.0f), setUnit("BAR"); break;
+    case M_LEAK_MIN: snprintf(buf, n, "%u", (unsigned)settings.leakMinutes), setUnit("MIN"); break;
+    case M_MOUNT: snprintf(buf, n, "%u", (unsigned)settings.mountQuarter * 90), setUnit("GRAD"); break;
+    case M_TILT_R: snprintf(buf, n, "%u", (unsigned)settings.tiltWarnRoll), setUnit("GRAD"); break;
+    case M_TILT_P: snprintf(buf, n, "%u", (unsigned)settings.tiltWarnPitch), setUnit("GRAD"); break;
+    case M_MAGCAL: snprintf(buf, n, "%s", settings.magCalibrated ? "OK" : "--"); break;
+    case M_MAGOFF: snprintf(buf, n, "%d", (int)settings.compassOffsetDeg), setUnit("GRAD"); break;
+    case M_MAGMIR: snprintf(buf, n, "%s", settings.compassMirror ? "AN" : "AUS"); break;
+    case M_ALT:
+      if (screen == Screen::Edit) snprintf(buf, n, "%d", (int)lroundf(editAltitude));
+      else if (!isnan(airPa)) snprintf(buf, n, "%d", (int)lroundf(altitudeFromPressure(airPa, settings.qnhPa)));
+      else snprintf(buf, n, "--");
+      setUnit("M");
+      break;
+    case M_HOUR: snprintf(buf, n, "%02d", rtcField(true)); break;
+    case M_MIN: snprintf(buf, n, "%02d", rtcField(false)); break;
+    case M_WB: snprintf(buf, n, "%u", (unsigned)settings.wheelbaseCm), setUnit("CM"); break;
+    case M_TRACK: snprintf(buf, n, "%u", (unsigned)settings.trackCm), setUnit("CM"); break;
+    case M_BRIGHT: snprintf(buf, n, "%u", (unsigned)(settings.contrast * 100 / 255)), setUnit("%"); break;
+    case M_VOL: snprintf(buf, n, "%u", (unsigned)(settings.volume * 100 / 255)), setUnit("%"); break;
+    case M_SOUND: snprintf(buf, n, "%s", settings.buzzer ? "AN" : "AUS"); break;
+    case M_DEMO: snprintf(buf, n, "%s", settings.demo ? "AN" : "AUS"); break;
     default: buf[0] = 0;
   }
 }
 
 static int addClamped(int v, int d, int lo, int hi) { return v + d < lo ? lo : (v + d > hi ? hi : v + d); }
+
+static void setRtc(int hour, int minute) {
+  if (!rtcOk) return;
+  m5::rtc_time_t t(hour, minute, 0);
+  M5.Rtc.setTime(&t);
+}
 
 static void menuAdjust(int item, int d) {
   if (float* t = targetPtr(item)) {
@@ -208,6 +580,10 @@ static void menuAdjust(int item, int d) {
     case M_MOUNT: settings.mountQuarter = (uint8_t)((settings.mountQuarter + d + 400) % 4); break;
     case M_TILT_R: settings.tiltWarnRoll = addClamped(settings.tiltWarnRoll, d, 5, 45); break;
     case M_TILT_P: settings.tiltWarnPitch = addClamped(settings.tiltWarnPitch, d, 5, 45); break;
+    case M_MAGOFF: settings.compassOffsetDeg = addClamped(settings.compassOffsetDeg, d, -180, 180); break;
+    case M_ALT: editAltitude = addClamped((int)lroundf(editAltitude), d * 10, -400, 5000); break;
+    case M_HOUR: setRtc((rtcField(true) + d + 2400) % 24, rtcField(false)); break;
+    case M_MIN: setRtc(rtcField(true), (rtcField(false) + d + 6000) % 60); break;
     case M_WB: settings.wheelbaseCm = addClamped(settings.wheelbaseCm, d, 150, 600); break;
     case M_TRACK: settings.trackCm = addClamped(settings.trackCm, d, 100, 250); break;
     case M_BRIGHT: settings.contrast = addClamped(settings.contrast, d * 13, 10, 255); break;
@@ -216,10 +592,39 @@ static void menuAdjust(int item, int d) {
   applySettings();
 }
 
-// ============================================================ Anlernen
+static void drawMenu() {
+  char pos[8];
+  snprintf(pos, sizeof(pos), "%d/%d", menuIdx + 1, (int)M_COUNT);
+  header("MENUE", pos);
+  if (menuIdx < menuTop) menuTop = menuIdx;
+  if (menuIdx >= menuTop + MENU_ROWS) menuTop = menuIdx - MENU_ROWS + 1;
+  for (int r = 0; r < MENU_ROWS && menuTop + r < M_COUNT; ++r) {
+    int i = menuTop + r, y = 15 + r * 24;
+    uint16_t col = AMB;
+    if (i == menuIdx) {
+      canvas.fillRect(0, y - 2, W, 22, AMB);
+      col = BG;
+    }
+    ptext(MENU_LABELS[i], 4, y + 1, 2, col);
+    char val[12];
+    menuValue(i, val, sizeof(val));
+    ptext(val, 236, y + 1, 2, col, AL_R);
+  }
+}
+
+static void drawEdit() {
+  char val[12], unit[12];
+  menuValue(menuIdx, val, sizeof(val), unit, sizeof(unit));
+  header(EDIT_TITLES[menuIdx], unit);
+  seg(val, W / 2, 28, 64, AMB, GHOST, AL_C);
+  ptext("DREHEN = WERT   DRUECKEN = OK", W / 2, 124, 1, MID, AL_C);
+}
+
+// ============================================================ Anlernen / Kalibrieren
 static int pairWheel = 0;
 static bool pairHasCandidate = false;
 static SensorReading pairCandidate;
+static const char* const WHEEL_LONG[4] = {"VORNE LINKS", "VORNE RECHTS", "HINTEN LINKS", "HINTEN RECHTS"};
 
 static bool idUsedByOtherWheel(uint64_t id, int wheel) {
   for (int w = 0; w < WHEEL_COUNT; ++w)
@@ -250,31 +655,27 @@ static void pairingNext(bool accept) {
   }
 }
 
-// ============================================================ Neigung
-static void updateTilt() {
-  static uint32_t last = 0;
-  uint32_t now = millis();
-  if (now - last < 20) return;  // 50 Hz
-  last = now;
-
-  Vec3 a;
-  if (settings.demo) {
-    float t = now / 1000.0f;
-    float r = 6.0f * sinf(t / 7.0f) * 0.0174533f, p = 4.0f * sinf(t / 11.0f) * 0.0174533f;
-    a = {sinf(p), sinf(r) * cosf(p), cosf(r) * cosf(p)};
-    TiltCalc flat;
-    flat.setup({0, 0, 1}, 0);
-    flat.compute(a, rollDeg, pitchDeg);
-    return;
+static void drawPair() {
+  char buf[40];
+  snprintf(buf, sizeof(buf), "%d/4", pairWheel + 1);
+  header("SENSOREN ANLERNEN", buf);
+  ptext(wheelName((Wheel)pairWheel), 4, 20, 4, AMB);
+  if (pairHasCandidate) {
+    char id[12];
+    formatShortId(pairCandidate.id, id, sizeof(id));
+    ptext("GEFUNDEN:", 70, 22, 1, MID);
+    snprintf(buf, sizeof(buf), "%s %s", sensorTypeName(pairCandidate.type), id);
+    ptext(buf, 70, 34, 1, AMB);
+    snprintf(buf, sizeof(buf), "%.2f BAR  %d DBM", pairCandidate.pressureBar, pairCandidate.rssi);
+    ptext(buf, 70, 48, 1, AMB);
+    ptext("KURZ = UEBERNEHMEN   LANG = ABBRUCH", W / 2, 124, 1, AMB, AL_C);
+  } else {
+    if (blinkOn()) ptext("SUCHE ...", 70, 34, 1, AMB);
+    ptext("SENSOR AUF DAS RAD", 4, 78, 2, MID);
+    snprintf(buf, sizeof(buf), "%s SCHRAUBEN", WHEEL_LONG[pairWheel]);
+    ptext(buf, 4, 98, 1, MID);
+    ptext("KURZ = UEBERSPRINGEN   LANG = ABBRUCH", W / 2, 124, 1, MID, AL_C);
   }
-  if (!imuOk) return;
-  M5.Imu.update();
-  if (!M5.Imu.getAccel(&a.x, &a.y, &a.z)) return;
-  const float k = 0.02f;  // Tiefpass, Zeitkonstante ca. 1 s
-  accelFilt.x += k * (a.x - accelFilt.x);
-  accelFilt.y += k * (a.y - accelFilt.y);
-  accelFilt.z += k * (a.z - accelFilt.z);
-  tilt.compute(accelFilt, rollDeg, pitchDeg);
 }
 
 static void calibrateLevel() {
@@ -301,6 +702,128 @@ static void calibrateLevel() {
   saveSettings();
 }
 
+static void drawCalib() {
+  header("NEIGUNG NULLEN");
+  ptext("FAHRZEUG EBEN ABSTELLEN", W / 2, 22, 1, MID, AL_C);
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%.1f", rollDeg);
+  seg(buf, 60, 44, 40, AMB, GHOST, AL_C);
+  snprintf(buf, sizeof(buf), "%.1f", pitchDeg);
+  seg(buf, 180, 44, 40, AMB, GHOST, AL_C);
+  ptext("SEITE", 60, 92, 1, MID, AL_C);
+  ptext("LAENGS", 180, 92, 1, MID, AL_C);
+  ptext("KURZ = SPEICHERN   LANG = ABBRUCH", W / 2, 124, 1, AMB, AL_C);
+}
+
+static void drawMagCalib() {
+  header("KOMPASS KALIBRIEREN");
+  ptext("LANGSAM EINEN KREIS FAHREN", W / 2, 22, 1, MID, AL_C);
+  ptext("(ODER 2 RUNDEN AUF PARKPLATZ)", W / 2, 34, 1, MID, AL_C);
+  int pct = (int)lroundf(magCal.coverage() * 100);
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%d", pct);
+  seg(buf, 110, 50, 44, AMB, GHOST, AL_R);
+  ptext("%", 116, 74, 2, AMB);
+  canvas.drawRect(150, 60, 80, 14, MID);
+  canvas.fillRect(152, 62, 76 * pct / 100, 10, AMB);
+  ptext(magCal.usable() && pct >= 75 ? "KURZ = FERTIG   LANG = ABBRUCH" : "WEITER DREHEN ...   LANG = ABBRUCH", W / 2,
+        124, 1, AMB, AL_C);
+}
+
+static void drawOverlay() {
+  if (!overlayText || millis() >= overlayUntil) return;
+  canvas.fillRect(20, 40, W - 40, 50, AMB);
+  ptext(overlayText, W / 2, 53, 3, BG, AL_C);
+}
+
+// ============================================================ Sensoren
+static bool bmpBegin() {
+  const uint8_t addrs[2] = {0x76, 0x77};
+  for (uint8_t a : addrs) {
+    uint8_t id = M5.Ex_I2C.readRegister8(a, 0xD0, 400000);
+    if (id != 0x58 && id != 0x60) continue;  // BMP280 / BME280
+    uint8_t raw[24];
+    if (!M5.Ex_I2C.readRegister(a, 0x88, raw, 24, 400000)) continue;
+    bmp280ParseCalib(raw, bmpCal);
+    M5.Ex_I2C.writeRegister8(a, 0xF5, 0x90, 400000);  // 500 ms Standby, Filter x16
+    M5.Ex_I2C.writeRegister8(a, 0xF4, 0x57, 400000);  // Temp x2, Druck x16, Dauerbetrieb
+    bmpAddr = a;
+    return true;
+  }
+  return false;
+}
+
+static void updateAir(uint32_t now) {
+  static uint32_t last = 0;
+  if (now - last < 1000) return;
+  last = now;
+  if (settings.demo) {
+    float t = now / 1000.0f;
+    airPa = 95600.0f - fmodf(t, 3600.0f) * 0.05f;  // ca. 480 m, langsam fallend
+    airTempC = 22.0f + sinf(t / 300.0f);
+  } else if (bmpAddr) {
+    uint8_t d[6];
+    if (!M5.Ex_I2C.readRegister(bmpAddr, 0xF7, d, 6, 400000)) return;
+    int32_t adcP = ((int32_t)d[0] << 12) | ((int32_t)d[1] << 4) | (d[2] >> 4);
+    int32_t adcT = ((int32_t)d[3] << 12) | ((int32_t)d[4] << 4) | (d[5] >> 4);
+    float t, p;
+    if (!bmp280Compensate(bmpCal, adcT, adcP, t, p)) return;
+    airTempC = t;
+    airPa = isnan(airPa) ? p : airPa + 0.2f * (p - airPa);
+  } else {
+    return;
+  }
+  trend.add(airPa, now);
+}
+
+static void updateMotion() {
+  static uint32_t last = 0;
+  uint32_t now = millis();
+  if (now - last < 20) return;  // 50 Hz
+  last = now;
+
+  if (settings.demo) {
+    float t = now / 1000.0f;
+    float r = 6.0f * sinf(t / 7.0f) * 0.0174533f, p = 4.0f * sinf(t / 11.0f) * 0.0174533f;
+    Vec3 a = {sinf(p), sinf(r) * cosf(p), cosf(r) * cosf(p)};
+    TiltCalc flat;
+    flat.setup({0, 0, 1}, 0);
+    flat.compute(a, rollDeg, pitchDeg);
+    headingDeg = fmodf(t * 3.0f, 360.0f);
+    return;
+  }
+  if (!imuOk) return;
+  M5.Imu.update();
+  Vec3 a;
+  if (!M5.Imu.getAccel(&a.x, &a.y, &a.z)) return;
+  const float k = 0.02f;  // Tiefpass, Zeitkonstante ca. 1 s
+  accelFilt.x += k * (a.x - accelFilt.x);
+  accelFilt.y += k * (a.y - accelFilt.y);
+  accelFilt.z += k * (a.z - accelFilt.z);
+  tilt.compute(accelFilt, rollDeg, pitchDeg);
+
+  Vec3 m;
+  if (M5.Imu.getMag(&m.x, &m.y, &m.z) && (fabsf(m.x) + fabsf(m.y) + fabsf(m.z)) > 1.0f) {
+    magOk = true;
+    magRaw = m;
+    if (screen == Screen::MagCalib) magCal.add(m);
+    Vec3 mc = settings.magCalibrated ? Vec3{m.x - settings.magOffset[0], m.y - settings.magOffset[1],
+                                            m.z - settings.magOffset[2]}
+                                     : (screen == Screen::MagCalib ? Vec3{m.x - magCal.offset().x,
+                                                                          m.y - magCal.offset().y,
+                                                                          m.z - magCal.offset().z}
+                                                                   : m);
+    float h = tilt.heading(mc, accelFilt);
+    if (screen == Screen::MagCalib) magCal.addHeadingSample(h);
+    h = applyCompassCorrection(h, settings.compassOffsetDeg, settings.compassMirror);
+    // Glaetten ueber Sinus/Kosinus (sauber ueber 0/360 hinweg)
+    headSin += 0.05f * (sinf(h * 0.0174533f) - headSin);
+    headCos += 0.05f * (cosf(h * 0.0174533f) - headCos);
+    headingDeg = atan2f(headSin, headCos) * 57.29578f;
+    if (headingDeg < 0) headingDeg += 360.0f;
+  }
+}
+
 // ============================================================ Demo-Reifen
 static void demoTick(uint32_t now) {
   static uint32_t last = 0;
@@ -317,234 +840,6 @@ static void demoTick(uint32_t now) {
     r.batteryPct = w == RR ? 15 : 85;
     monitors[w].addReading(r, now);
   }
-}
-
-// ============================================================ Zeichen-Helfer
-static bool blinkOn() { return (millis() / 400) % 2 == 0; }
-
-static uint16_t sevColor(uint8_t sev) {
-  if (sev >= 3) return C_CRIT;
-  if (sev >= 1) return C_WARN;
-  return C_OK;
-}
-
-static void text(const char* s, int x, int y, const lgfx::IFont* font, uint16_t color,
-                 uint8_t datum = middle_center) {
-  canvas.setFont(font);
-  canvas.setTextDatum(datum);
-  canvas.setTextColor(color);
-  canvas.drawString(s, x, y);
-}
-
-static void fillRotRect(float cx, float cy, float ox, float oy, float w, float h, float deg, uint16_t col,
-                        float k = 1.0f) {
-  float s = sinf(deg * 0.0174533f), c = cosf(deg * 0.0174533f);
-  float xs[4] = {ox, ox + w, ox + w, ox}, ys[4] = {oy, oy, oy + h, oy + h};
-  int px[4], py[4];
-  for (int i = 0; i < 4; ++i) {
-    px[i] = (int)lroundf(cx + k * (xs[i] * c - ys[i] * s));
-    py[i] = (int)lroundf(cy + k * (xs[i] * s + ys[i] * c));
-  }
-  canvas.fillTriangle(px[0], py[0], px[1], py[1], px[2], py[2], col);
-  canvas.fillTriangle(px[0], py[0], px[2], py[2], px[3], py[3], col);
-}
-
-// Kopfzeile: Modus links, Status rechts
-static void drawHeader(const char* right, uint16_t rightColor) {
-  text(currentMode() == ROAD ? "STRASSE" : "OFFROAD", 2, 8, &fonts::Font2, currentMode() == ROAD ? C_ROAD : C_OFF,
-       middle_left);
-  if (settings.demo) text("DEMO", 70, 8, &fonts::Font2, C_WARN, middle_left);
-  if (right) text(right, W - 2, 8, &fonts::Font2, rightColor, middle_right);
-}
-
-// ============================================================ Seite: Reifen
-static void drawTiresPage() {
-  Wheel worst = alarms.worstWheel(states);
-  uint8_t worstSev = worst == WHEEL_COUNT ? 0 : severity(states[worst]);
-
-  char status[24];
-  uint16_t scol = C_DIM;
-  if (worstSev >= 1) {
-    snprintf(status, sizeof(status), "%s %s", wheelName(worst), stateText(states[worst]));
-    scol = (worstSev >= 2 && !blinkOn()) ? C_BG : sevColor(worstSev);
-  } else {
-    bool any = false;
-    for (int w = 0; w < WHEEL_COUNT; ++w) any |= states[w] == State::Ok;
-    snprintf(status, sizeof(status), "%s", any ? "alles OK" : "keine Sensoren");
-  }
-  drawHeader(status, scol);
-
-  // Transporter von oben
-  canvas.fillRoundRect(109, 20, 22, 112, 6, C_DARK);
-  canvas.drawRoundRect(109, 20, 22, 112, 6, C_DIM);
-  canvas.drawFastHLine(112, 34, 16, C_DIM);
-  canvas.drawFastHLine(112, 44, 16, C_DIM);
-  const int wx[4] = {104, 131, 104, 131}, wy[4] = {26, 26, 106, 106};
-  for (int w = 0; w < WHEEL_COUNT; ++w) {
-    uint8_t sev = severity(states[w]);
-    uint16_t col = (states[w] == State::NotPaired || states[w] == State::NoData) ? C_DIM : sevColor(sev);
-    if (sev >= 2 && !blinkOn()) col = C_BG;
-    canvas.fillRoundRect(wx[w], wy[w], 5, 20, 1, col);
-  }
-
-  const int vy[4] = {44, 44, 98, 98};
-  for (int w = 0; w < WHEEL_COUNT; ++w) {
-    const bool left = (w == FL || w == RL);
-    const int x = left ? 96 : 144;
-    const uint8_t datum = left ? middle_right : middle_left;
-    State s = states[w];
-    uint8_t sev = severity(s);
-    char big[8], small[16];
-    bool noVal = s == State::NotPaired || s == State::NoData || !monitors[w].hasData();
-    if (noVal) strcpy(big, "--");
-    else snprintf(big, sizeof(big), "%.1f", monitors[w].pressure());
-    uint16_t col = noVal ? C_DIM : (sev >= 2 ? sevColor(sev) : C_TEXT);
-    if (sev >= 2 && !blinkOn()) col = C_DARK;
-    text(big, x, vy[w], &fonts::FreeSansBold18pt7b, col, datum);
-
-    if (sev > 0 || noVal) snprintf(small, sizeof(small), "%s", stateText(s));
-    else if (monitors[w].battery() < 20) snprintf(small, sizeof(small), "Batt. %u%%", (unsigned)monitors[w].battery());
-    else snprintf(small, sizeof(small), "Soll %.1f", targetFor(settings, currentMode(), (Wheel)w));
-    text(small, x, vy[w] + 22, &fonts::Font2, sev > 0 ? sevColor(sev) : C_DIM, datum);
-  }
-}
-
-// ============================================================ Seite: Neigung
-static void drawNoImu(const char* title) {
-  drawHeader(title, C_DIM);
-  text("Kein Lagesensor", W / 2, 60, &fonts::FreeSansBold9pt7b, C_WARN);
-  text("Unit IMU an Port A stecken", W / 2, 90, &fonts::Font2, C_DIM);
-}
-
-static uint16_t tiltColor(float v, float warn) {
-  float a = fabsf(v);
-  return a >= warn ? C_CRIT : (a >= warn * 0.7f ? C_WARN : C_TEXT);
-}
-
-static void drawTiltPage() {
-  if (!imuOk && !settings.demo) return drawNoImu("NEIGUNG");
-  drawHeader("NEIGUNG", C_DIM);
-
-  const float cxL = 60, cxR = 180, cy = 56, k = 0.85f;
-  canvas.drawFastHLine(15, (int)(cy + 24 * k), 90, C_DARK);
-  canvas.drawFastHLine(135, (int)(cy + 24 * k), 90, C_DARK);
-
-  uint16_t cr = tiltColor(rollDeg, settings.tiltWarnRoll);
-  fillRotRect(cxL, cy, -24, -26, 48, 42, rollDeg, cr, k);
-  fillRotRect(cxL, cy, -18, -20, 36, 10, rollDeg, C_BG, k);
-  fillRotRect(cxL, cy, -24, 16, 12, 8, rollDeg, C_DIM, k);
-  fillRotRect(cxL, cy, 12, 16, 12, 8, rollDeg, C_DIM, k);
-
-  uint16_t cp = tiltColor(pitchDeg, settings.tiltWarnPitch);
-  float pd = -pitchDeg;
-  fillRotRect(cxR, cy, -36, -24, 66, 40, pd, cp, k);
-  fillRotRect(cxR, cy, 30, -10, 10, 26, pd, cp, k);
-  fillRotRect(cxR, cy, 18, -20, 12, 12, pd, C_BG, k);
-  fillRotRect(cxR, cy, -30, 16, 12, 8, pd, C_DIM, k);
-  fillRotRect(cxR, cy, 18, 16, 12, 8, pd, C_DIM, k);
-
-  char buf[24];
-  snprintf(buf, sizeof(buf), "%.0f Grad", fabsf(rollDeg));
-  text(buf, (int)cxL, 104, &fonts::FreeSansBold9pt7b, cr);
-  snprintf(buf, sizeof(buf), "%.0f Grad", fabsf(pitchDeg));
-  text(buf, (int)cxR, 104, &fonts::FreeSansBold9pt7b, cp);
-  text(fabsf(rollDeg) < 1 ? "Seite" : (rollDeg > 0 ? "rechts tiefer" : "links tiefer"), (int)cxL, 124,
-       &fonts::Font2, C_DIM);
-  text(fabsf(pitchDeg) < 1 ? "Laengs" : (pitchDeg > 0 ? "bergauf" : "bergab"), (int)cxR, 124, &fonts::Font2, C_DIM);
-  if (tiltWarn && blinkOn()) canvas.drawRect(0, 0, W, H, C_CRIT), canvas.drawRect(1, 1, W - 2, H - 2, C_CRIT);
-}
-
-// ============================================================ Seite: Ausrichten
-static void drawLevelPage() {
-  if (!imuOk && !settings.demo) return drawNoImu("AUSRICHTEN");
-  bool level = fabsf(rollDeg) < 0.5f && fabsf(pitchDeg) < 0.5f;
-  drawHeader(level ? "EBEN" : "AUSRICHTEN", level ? C_OK : C_DIM);
-
-  const int cx = W / 2, cy = 76, r = 44;
-  canvas.drawCircle(cx, cy, r, C_DIM);
-  canvas.drawCircle(cx, cy, 9, C_DARK);
-  canvas.drawFastHLine(cx - r, cy, 2 * r, C_DARK);
-  canvas.drawFastVLine(cx, cy - r, 2 * r, C_DARK);
-  float bx = -rollDeg * 7.0f, by = -pitchDeg * 7.0f;
-  float d = sqrtf(bx * bx + by * by);
-  if (d > r - 9) {
-    bx *= (r - 9) / d;
-    by *= (r - 9) / d;
-  }
-  canvas.fillCircle(cx + (int)bx, cy + (int)by, 8, level ? C_OK : C_WARN);
-
-  float lift[WHEEL_COUNT];
-  levelingLifts(rollDeg, pitchDeg, settings.wheelbaseCm, settings.trackCm, lift);
-  const int lx[4] = {38, 202, 38, 202}, ly[4] = {44, 44, 104, 104};
-  for (int w = 0; w < WHEEL_COUNT; ++w) {
-    char buf[12];
-    if (lift[w] < 0.5f) strcpy(buf, "0");
-    else snprintf(buf, sizeof(buf), "+%.0f", lift[w]);
-    text(buf, lx[w], ly[w], &fonts::FreeSansBold12pt7b, lift[w] < 0.5f ? C_OK : C_TEXT);
-    char lab[12];
-    snprintf(lab, sizeof(lab), "%s cm", wheelName((Wheel)w));
-    text(lab, lx[w], ly[w] + 20, &fonts::Font2, C_DIM);
-  }
-}
-
-// ============================================================ Menue zeichnen
-static void drawMenu() {
-  text("Einstellungen", 2, 8, &fonts::Font2, C_DIM, middle_left);
-  if (menuIdx < menuTop) menuTop = menuIdx;
-  if (menuIdx >= menuTop + MENU_ROWS) menuTop = menuIdx - MENU_ROWS + 1;
-  for (int r = 0; r < MENU_ROWS && menuTop + r < M_COUNT; ++r) {
-    int i = menuTop + r, y = ROW_Y0 + r * ROW_H;
-    if (i == menuIdx) canvas.fillRoundRect(0, y + 1, W, ROW_H - 2, 6, C_DARK);
-    text(MENU_LABELS[i], 6, y + ROW_H / 2, &fonts::FreeSans9pt7b, C_TEXT, middle_left);
-    char val[20];
-    menuValueText(i, val, sizeof(val));
-    text(val, W - 6, y + ROW_H / 2, &fonts::Font2, C_ROAD, middle_right);
-  }
-}
-
-static void drawEdit() {
-  text(MENU_LABELS[menuIdx], W / 2, 14, &fonts::FreeSans9pt7b, C_DIM);
-  char val[20];
-  menuValueText(menuIdx, val, sizeof(val));
-  text(val, W / 2, 66, &fonts::FreeSansBold18pt7b, C_TEXT);
-  text("drehen: Wert   druecken: OK", W / 2, 122, &fonts::Font2, C_DIM);
-}
-
-static void drawPair() {
-  char buf[40];
-  snprintf(buf, sizeof(buf), "Anlernen %d/4", pairWheel + 1);
-  text(buf, 2, 8, &fonts::Font2, C_DIM, middle_left);
-  text(wheelName((Wheel)pairWheel), W - 4, 22, &fonts::FreeSansBold18pt7b, C_TEXT, middle_right);
-  if (pairHasCandidate) {
-    char id[12];
-    formatShortId(pairCandidate.id, id, sizeof(id));
-    snprintf(buf, sizeof(buf), "%s  %s", sensorTypeName(pairCandidate.type), id);
-    text(buf, 4, 56, &fonts::Font2, C_TEXT, middle_left);
-    snprintf(buf, sizeof(buf), "%.2f bar  %d dBm", pairCandidate.pressureBar, pairCandidate.rssi);
-    text(buf, 4, 76, &fonts::Font2, C_TEXT, middle_left);
-    text("kurz: OK   lang: Abbruch", W / 2, 122, &fonts::Font2, C_OK);
-  } else {
-    text("Sensor jetzt auf", 4, 56, &fonts::Font2, C_TEXT, middle_left);
-    text("dieses Rad schrauben", 4, 76, &fonts::Font2, C_TEXT, middle_left);
-    if (blinkOn()) text("suche ...", 4, 96, &fonts::Font2, C_ROAD, middle_left);
-    text("kurz: weiter  lang: Abbruch", W / 2, 122, &fonts::Font2, C_DIM);
-  }
-}
-
-static void drawCalib() {
-  text("Neigung nullen", 2, 8, &fonts::Font2, C_DIM, middle_left);
-  text("Fahrzeug eben abstellen", W / 2, 38, &fonts::Font2, C_TEXT);
-  char buf[32];
-  snprintf(buf, sizeof(buf), "%.1f / %.1f", rollDeg, pitchDeg);
-  text(buf, W / 2, 72, &fonts::FreeSansBold12pt7b, C_DIM);
-  text("kurz: OK   lang: Abbruch", W / 2, 122, &fonts::Font2, C_OK);
-}
-
-static void drawOverlay() {
-  if (!overlayText || millis() >= overlayUntil) return;
-  canvas.fillRoundRect(30, 38, W - 60, 60, 10, C_BG);
-  canvas.drawRoundRect(30, 38, W - 60, 60, 10, C_DIM);
-  text(overlayText, W / 2, 68, &fonts::FreeSansBold12pt7b, C_TEXT);
 }
 
 // ============================================================ Eingabe
@@ -567,7 +862,19 @@ static void activateMenuItem() {
       break;
     case M_CALIB:
       if (imuOk) screen = Screen::Calib;
-      else showOverlay("kein Sensor");
+      else showOverlay("KEIN SENSOR");
+      break;
+    case M_MAGCAL:
+      if (magOk) {
+        magCal.reset();
+        screen = Screen::MagCalib;
+      } else {
+        showOverlay("KEIN SENSOR");
+      }
+      break;
+    case M_MAGMIR:
+      settings.compassMirror = !settings.compassMirror;
+      saveSettings();
       break;
     case M_SOUND:
       settings.buzzer = !settings.buzzer;
@@ -577,6 +884,22 @@ static void activateMenuItem() {
       settings.demo = !settings.demo;
       for (auto& m : monitors) m.reset();
       saveSettings();
+      break;
+    case M_ALT:
+      if (isnan(airPa)) {
+        showOverlay("KEIN SENSOR");
+        break;
+      }
+      editAltitude = altitudeFromPressure(airPa, settings.qnhPa);
+      screen = Screen::Edit;
+      break;
+    case M_HOUR:
+    case M_MIN:
+      if (!rtcOk) {
+        showOverlay("KEINE UHR");
+        break;
+      }
+      screen = Screen::Edit;
       break;
     default: screen = Screen::Edit;
   }
@@ -621,6 +944,7 @@ static void handleInput() {
     case Screen::Edit:
       if (steps) menuAdjust(menuIdx, steps);
       if (shortPress || longPress || now - lastInputMs > MENU_TIMEOUT_MS) {
+        if (menuIdx == M_ALT && shortPress && !isnan(airPa)) settings.qnhPa = qnhFromAltitude(airPa, editAltitude);
         clampSettings(settings);
         applySettings();
         saveSettings();
@@ -641,9 +965,26 @@ static void handleInput() {
       if (shortPress) {
         calibrateLevel();
         beeper.play(BEEP_OK, 4, false, 4000);
-        showOverlay("gespeichert");
+        showOverlay("GESPEICHERT");
         screen = Screen::Main;
         page = P_LEVEL;
+      } else if (longPress) {
+        screen = Screen::Menu;
+      }
+      break;
+
+    case Screen::MagCalib:
+      if (shortPress && magCal.usable() && magCal.coverage() >= 0.75f) {
+        Vec3 o = magCal.offset();
+        settings.magOffset[0] = o.x;
+        settings.magOffset[1] = o.y;
+        settings.magOffset[2] = o.z;
+        settings.magCalibrated = true;
+        saveSettings();
+        beeper.play(BEEP_OK, 4, false, 4000);
+        showOverlay("GESPEICHERT");
+        screen = Screen::Main;
+        page = P_COMPASS;
       } else if (longPress) {
         screen = Screen::Menu;
       }
@@ -678,7 +1019,7 @@ static void evaluateAll(uint32_t now) {
       break;
   }
 
-  if (imuOk || settings.demo) {
+  if (haveTilt()) {
     bool w = tiltWarning(tiltWarn, rollDeg, pitchDeg, settings.tiltWarnRoll, settings.tiltWarnPitch);
     if (w && !tiltWarn && !alarms.hasUnacknowledged()) {
       if (screen == Screen::Main) page = P_TILT;
@@ -691,7 +1032,7 @@ static void evaluateAll(uint32_t now) {
 // ============================================================ Arduino
 void setup() {
   auto cfg = M5.config();
-  cfg.external_imu = true;  // Unit IMU an Port A suchen
+  cfg.external_imu = true;  // Unit Mini IMU-Pro an Port A suchen
   DinMeter.begin(cfg, true /* Drehknopf */);
   M5.BtnA.setHoldThresh(800);
   M5.Display.setRotation(1);  // quer
@@ -700,17 +1041,22 @@ void setup() {
   loadAll();
   applySettings();
   imuOk = M5.Imu.isEnabled();
+  rtcOk = M5.Rtc.isEnabled();
+  if (imuOk) bmpBegin();
   accelFilt = {settings.level[0], settings.level[1], settings.level[2]};
 
   canvas.setColorDepth(16);
   canvas.createSprite(W, H);
-  canvas.fillScreen(C_BG);
-  text("Reifendruck", W / 2, 55, &fonts::FreeSansBold12pt7b, C_TEXT);
-  text(imuOk ? "+ Neigung" : "ohne Lagesensor", W / 2, 88, &fonts::Font2, C_DIM);
+  canvas.fillScreen(BG);
+  ptext("SPRINTER", W / 2, 30, 3, AMB, AL_C);
+  ptext("BORDINSTRUMENT", W / 2, 62, 2, MID, AL_C);
+  char info[40];
+  snprintf(info, sizeof(info), "LAGE:%s  LUFTDRUCK:%s", imuOk ? "JA" : "NEIN", bmpAddr ? "JA" : "NEIN");
+  ptext(info, W / 2, 100, 1, MID, AL_C);
   canvas.pushSprite(0, 0);
 
   blet::begin();
-  Serial.printf("Start. Lagesensor: %s\n", imuOk ? "ja" : "nein");
+  Serial.printf("Start. Lage: %d  Luftdruck: %d  Uhr: %d\n", imuOk, bmpAddr != 0, rtcOk);
 }
 
 void loop() {
@@ -719,7 +1065,8 @@ void loop() {
   handleInput();
   processReadings(now);
   if (settings.demo) demoTick(now);
-  updateTilt();
+  updateMotion();
+  updateAir(now);
 
   static uint32_t lastEval = 0, lastDraw = 0, lastKeep = 0;
   if (now - lastEval >= 250) {
@@ -729,7 +1076,8 @@ void loop() {
   if (now - lastKeep >= 10000) {
     lastKeep = now;
     blet::keepAlive();
-    Serial.printf("[%s] roll %.1f pitch %.1f |", modeName(currentMode()), rollDeg, pitchDeg);
+    Serial.printf("[%s] roll %.1f pitch %.1f kurs %.0f p %.0f |", modeName(currentMode()), rollDeg, pitchDeg,
+                  headingDeg, airPa);
     for (int w = 0; w < WHEEL_COUNT; ++w)
       Serial.printf(" %s %.2f %s", wheelName((Wheel)w), monitors[w].pressure(), stateText(states[w]));
     Serial.println();
@@ -738,17 +1086,23 @@ void loop() {
 
   if (now - lastDraw >= 50) {  // ~20 fps
     lastDraw = now;
-    canvas.fillScreen(C_BG);
+    canvas.fillScreen(BG);
     switch (screen) {
       case Screen::Main:
-        if (page == P_TIRES) drawTiresPage();
-        else if (page == P_TILT) drawTiltPage();
-        else drawLevelPage();
+        switch (page) {
+          case P_TIRES: drawTiresPage(); break;
+          case P_TEMPS: drawTempsPage(); break;
+          case P_TILT: drawTiltPage(); break;
+          case P_COMPASS: drawCompassPage(); break;
+          case P_BORD: drawBordPage(); break;
+          default: drawLevelPage(); break;
+        }
         break;
       case Screen::Menu: drawMenu(); break;
       case Screen::Edit: drawEdit(); break;
       case Screen::Pair: drawPair(); break;
       case Screen::Calib: drawCalib(); break;
+      case Screen::MagCalib: drawMagCalib(); break;
     }
     drawOverlay();
     canvas.pushSprite(0, 0);

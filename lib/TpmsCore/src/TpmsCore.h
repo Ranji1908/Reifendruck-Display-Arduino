@@ -86,6 +86,13 @@ struct Settings {
   uint16_t wheelbaseCm = 367;           // Radstand (W906: 325 / 367 / 432 cm)
   uint16_t trackCm = 171;               // Spurweite
   uint8_t volume = 160;                 // Lautstaerke 0..255
+  // --- Kompass
+  float magOffset[3] = {0, 0, 0};       // Hard-Iron-Korrektur aus der Kalibrierfahrt
+  bool magCalibrated = false;
+  int16_t compassOffsetDeg = 0;         // Feinkorrektur (z.B. Vergleich mit Handy-Kompass)
+  bool compassMirror = false;           // falls Kompass "falsch herum" dreht
+  // --- Hoehe
+  float qnhPa = 101325.0f;              // Luftdruck auf Meereshoehe (ueber "Hoehe setzen" kalibriert)
 };
 
 void clampSettings(Settings& s);
@@ -182,6 +189,9 @@ class TiltCalc {
   bool setup(Vec3 level, uint8_t mountQuarter);
   // roll  > 0: rechte Seite tiefer.   pitch > 0: Front hoeher (bergauf).
   void compute(Vec3 accel, float& rollDeg, float& pitchDeg) const;
+  // Kompasskurs 0..360 Grad (0 = Norden, 90 = Osten), neigungskompensiert mit der aktuellen
+  // Schwerkraftrichtung accel. mag = bereits um den Hard-Iron-Offset korrigierter Magnetwert.
+  float heading(Vec3 mag, Vec3 accel) const;
 
  private:
   Vec3 up_{0, 0, 1}, fwd_{1, 0, 0}, left_{0, 1, 0};
@@ -193,5 +203,54 @@ void levelingLifts(float rollDeg, float pitchDeg, float wheelbaseCm, float track
 
 // Warnung mit 2 Grad Hysterese
 bool tiltWarning(bool wasWarning, float rollDeg, float pitchDeg, float warnRoll, float warnPitch);
+
+// ---------------------------------------------------------------- Kompass
+// Sammelt waehrend einer Kreisfahrt Min/Max je Achse -> Mittelpunkt = Hard-Iron-Offset.
+class MagCalibrator {
+ public:
+  void reset();
+  void add(Vec3 m);
+  bool usable() const;          // genug Spreizung auf mind. 2 Achsen?
+  Vec3 offset() const;
+  float coverage() const;       // 0..1: Anteil der abgedeckten Himmelsrichtungen (grobe Fortschrittsanzeige)
+  void addHeadingSample(float headingDeg);
+
+ private:
+  Vec3 min_{1e9f, 1e9f, 1e9f}, max_{-1e9f, -1e9f, -1e9f};
+  uint16_t sectors_ = 0;  // 16 Sektoren a 22,5 Grad
+};
+
+float applyCompassCorrection(float headingDeg, int16_t offsetDeg, bool mirror);
+const char* compassPoint(float headingDeg);  // N, NO, O, SO, S, SW, W, NW
+
+// ---------------------------------------------------------------- Luftdruck (BMP280)
+struct Bmp280Calib {
+  uint16_t T1;
+  int16_t T2, T3;
+  uint16_t P1;
+  int16_t P2, P3, P4, P5, P6, P7, P8, P9;
+};
+// raw = 24 Byte ab Register 0x88
+void bmp280ParseCalib(const uint8_t raw[24], Bmp280Calib& c);
+// adcT/adcP = 20-Bit-Rohwerte. Ergebnis: Grad C und Pa.
+bool bmp280Compensate(const Bmp280Calib& c, int32_t adcT, int32_t adcP, float& tempC, float& pressPa);
+
+float altitudeFromPressure(float pressPa, float qnhPa);
+float qnhFromAltitude(float pressPa, float altitudeM);
+
+// Luftdruck-Tendenz der letzten 3 Stunden (Wetter). Ein Wert alle 10 Minuten.
+class PressureTrend {
+ public:
+  void add(float pressPa, uint32_t nowMs);
+  bool valid() const;               // mind. 1 h Daten
+  float changeHpa3h() const;        // auf 3 h hochgerechnet
+  const char* text() const;         // "STEIGT", "FAELLT", "STABIL", "STURM?"
+
+ private:
+  static const uint8_t N = 19;      // 3 h + 1
+  float p_[N];
+  uint32_t t_[N];
+  uint8_t count_ = 0, head_ = 0;
+};
 
 }  // namespace tpms
