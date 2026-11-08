@@ -1,44 +1,53 @@
 # Reifendruck- und Neigungsanzeige für den Sprinter W906
 
-Ein rundes Mini-Instrument fürs Armaturenbrett auf Basis des **M5Stack Dial**: Reifendruck aller
-4 Räder, Umschaltung **Straße/Offroad** mit eigenen Solldrücken, Warnungen bei Druckverlust –
-und optional **Neigungsmesser** fürs Gelände plus **Ausricht-Hilfe** für den Stellplatz.
+Ein schlichtes, rechteckiges Display fürs Armaturenbrett auf Basis des **M5Stack Core2**
+(54 × 54 mm, 2"-Touchdisplay, alles eingebaut): Reifendruck aller 4 Räder, Umschaltung
+**Straße/Offroad** mit eigenen Solldrücken, Warnungen bei Druckverlust – dazu **Neigungsmesser**
+fürs Gelände und **Ausricht-Hilfe** für den Stellplatz.
 
-- 🛒 **Was kaufen?** → [TEILELISTE.md](TEILELISTE.md)
-- 🔧 **Einbau** mit fertigem 52-mm-Instrumentenhalter → [TEILELISTE.md](TEILELISTE.md#einbau-ohne-basteln-am-gehäuse) (3D-Druck-Halter optional: [hardware/](hardware/README.md))
+- 🛒 **Was kaufen & wie einbauen?** → [TEILELISTE.md](TEILELISTE.md)
 
-## Die drei Seiten (Drehring dreht weiter)
+![Vorschau Hauptseite](docs/bilder/vorschau_reifen.png) ![Vorschau Alarm](docs/bilder/vorschau_alarm.png)
+
+*(Vorschau nachgezeichnet – Positionen und Farben wie in der Firmware, Schrift angenähert.)*
+
+## Die drei Seiten
 
 | REIFEN | NEIGUNG | AUSRICHTEN |
 |---|---|---|
-| Transporter von oben, an jeder Ecke Druck, Temperatur und Soll. Farbiger Ring am Rand zeigt den schlimmsten Zustand. | Heck- und Seitenansicht kippen live mit, Gradzahl, Warnung ab einstellbarem Winkel. | Libelle + **wie viele cm** unter welches Rad müssen (Auffahrkeile), bis der Camper eben steht. |
+| Transporter von oben, an jeder Ecke Druck, Temperatur und Soll. Oben rechts der wichtigste Status. | Heck- und Seitenansicht kippen live mit, Gradzahl, Warnung ab einstellbarem Winkel. | Libelle + **wie viele cm** unter welches Rad müssen (Auffahrkeile), bis der Camper eben steht. |
 
 ## So funktioniert's
 
 ```
- 4× BLE-Ventilkappen-Sensor ──Bluetooth──►  M5Stack Dial  ◄──Grove── Unit IMU (Neigung, optional)
+ 4× BLE-Ventilkappen-Sensor ──Bluetooth──►  M5Stack Core2 (Lagesensor eingebaut)
                                               │
-                         Zündungsplus 12 V ───┘ (6–36-V-Eingang, 2-A-Sicherung)
+                       Zündungsplus ── USB-Adapter ──┘ (USB-C)
 ```
 
-Die Sensoren senden Druck, Temperatur und Batterie per Bluetooth; der Dial hört passiv mit
+Die Sensoren senden Druck, Temperatur und Batterie per Bluetooth; das Display hört passiv mit
 (keine Kopplung per App nötig). **Sechs verbreitete Sensor-Typen** werden automatisch erkannt.
 
 ## Software aufspielen
 
 1. [VS Code](https://code.visualstudio.com/) + Erweiterung **PlatformIO** installieren, diesen Ordner öffnen.
-2. Dial per USB-C anschließen, unten **Upload** (→) – bzw. `pio run -e m5dial -t upload`.
+2. Core2 per USB-C anschließen, unten **Upload** (→) – bzw. `pio run -e m5core2 -t upload`
+   (CoreS3: `pio run -e m5cores3 -t upload`).
 3. Ohne Sensoren testen: Menü → **Demo-Modus an** (simuliert Druckverlust hinten links und Schaukeln).
 
-## Bedienung
+## Bedienung (Touch)
 
 | Wo | Aktion | Wirkung |
 |---|---|---|
-| Anzeige | **Drehring** | Seite wechseln: Reifen → Neigung → Ausrichten |
-| | **kurz drücken** | Straße ⇄ Offroad (bei aktivem Alarm: quittieren) |
-| | **lang drücken** | Menü |
-| Menü | drehen / kurz / lang | wählen / ändern & speichern / zurück |
-| **Touch** | tippen / lange tippen / wischen | wie kurz drücken / lang drücken / drehen |
+| Anzeige | **links / rechts tippen** oder wischen | vorige / nächste Seite |
+| | **Mitte tippen** | Straße ⇄ Offroad (bei aktivem Alarm: quittieren) |
+| | **lange halten** | Menü |
+| Menü | Eintrag antippen | ändern (Ein/Aus-Punkte schalten direkt um) |
+| | Leiste unten | hoch · zurück · runter |
+| Wert ändern | Leiste unten | − · OK · + |
+
+Beim Core2 gehen statt Touch auch die drei Tastenpunkte unter dem Display (links/Mitte/rechts,
+Mitte lange halten = Menü).
 
 **Menü:** Solldruck Straße vorn/hinten, Offroad vorn/hinten · Warn-, Kritisch-, Überdruck-Schwelle ·
 Leck-Erkennung · Sensoren anlernen · Neigung nullen · Einbaulage · Warnwinkel Seite/Längs ·
@@ -78,25 +87,23 @@ Radstand/Spurweite · Helligkeit · Lautstärke · Warnton · Demo.
 - **Werks-RDK:** Hat dein Sprinter ab Werk Reifendruckkontrolle, sind dessen 433-MHz-Sensoren hiermit
   **nicht** lesbar. Die Ventilkappen-Sensoren funktionieren unabhängig davon zusätzlich.
 - **Ventilkappen-Sensoren** mit Kontermuttern sichern. Fürs Luftablassen abschrauben, danach wieder drauf.
-- **Hitze:** Nicht direkt hinter die Windschutzscheibe in die pralle Sonne; Halter aus ASA/PETG drucken.
+- **Hitze:** Nicht in die pralle Sonne hinter die Windschutzscheibe – der Core2 hat einen kleinen Akku eingebaut.
 
 ## Fehlersuche
 
 - Sensor wird nicht gefunden: `#define DEBUG_BLE 1` oben in `include/BleTpms.h` bzw. als Build-Flag,
   dann `pio device monitor` – zeigt alle Bluetooth-Daten in der Nähe.
-- Drehring springt 2 Einträge pro Rastung: `DIAL_COUNTS_PER_DETENT` in `src/dial/main.cpp` auf 2 setzen.
-- „Kein Lagesensor“: Unit IMU in **Port A** stecken und Dial neu starten.
+- „Kein Lagesensor“ (nur CoreS3 SE oder ältere Geräte): Unit IMU in **Port A** stecken, neu starten.
 
 ## Projektstruktur
 
 ```
-platformio.ini            Build-Konfiguration (m5dial, esp32c3/esp32dev = Selbstbau-Variante, native = Tests)
-src/dial/main.cpp         Firmware für den M5Stack Dial
+platformio.ini            Build-Konfiguration (m5core2, m5cores3, esp32c3/esp32dev = Selbstbau-Variante, native = Tests)
+src/core/main.cpp         Firmware für M5Stack Core2 / CoreS3
 src/oled/main.cpp         Alternative Selbstbau-Firmware: ESP32-C3 + 1,3"-OLED + Drehgeber (siehe docs/SELBSTBAU_OLED.md)
 include/BleTpms.h         Bluetooth-Empfang (gemeinsam)
 lib/TpmsCore/             Logik ohne Hardware: Sensor-Dekoder, Warnungen, Neigung, Ausrichten
 test/test_core/           Unit-Tests: pio test -e native
-hardware/                 optionale 3D-Druck-Halter (OpenSCAD + STL)
 ```
 
 ## Haftung

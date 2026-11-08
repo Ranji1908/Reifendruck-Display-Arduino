@@ -1,61 +1,55 @@
-# Teileliste – Reifendruck- und Neigungsanzeige mit M5Stack Dial
+# Teileliste – Reifendruck- und Neigungsanzeige
 
-Stand: November 2026. Preise schwanken stark je nach Händler, bitte vor dem Kauf vergleichen.
+Stand: November 2026. Preise schwanken je nach Händler – vor dem Kauf vergleichen.
 
-## Pflicht
+## Das Display: M5Stack Core2
 
-| # | Teil | Wofür | Worauf achten | ca. Preis |
-|---|---|---|---|---|
-| 1 | **M5Stack Dial v1.1** (ESP32-S3) | Display, Drehknopf, Summer, Bluetooth – das ganze Gerät | Aktuelle Version heißt **v1.1** (das erste Modell wurde eingestellt). Rundes 1,28"-Touchdisplay, ca. Ø 45 × 32 mm. Laut Hersteller **6–36 V Eingang** auf der Rückseite – direkt ans 12-V-Bordnetz. | 35–45 € |
-| 2 | **4× BLE-Ventilkappen-Reifensensoren** | Druck + Temperatur je Rad | Die Firmware erkennt 6 verbreitete Typen (siehe unten). **Messbereich mind. 6 bar (87 psi)** – der Sprinter fährt hinten über 4 bar! Am besten Sets mit Kontermuttern (Diebstahlschutz). | 25–45 € |
-| 3 | **Stromanschluss** | Dial an Zündungsplus | Sicherungsabgriff („Add-A-Fuse“) passend zum Sicherungstyp im Sprinter (Mini oder Low-Profile-Mini – **vorher nachschauen**), Sicherung **2 A**, ca. 2 m Kabel 2 × 0,5 mm², Ringöse für Masse, Schrumpfschlauch. Stecker für den 6–36-V-Anschluss des Dial prüfen (Doku/Lieferumfang). | 10 € |
-| 4 | **52-mm-Instrumentenhalter** (1-fach, „Zusatzinstrument Halter Armaturenbrett, Aufbau“) | fertiges Gehäuse fürs Armaturenbrett | Genormtes Autozubehör für Zusatzinstrumente, gibt es gerade, schräg, für die A-Säule. Der Dial (Ø 45 mm) sitzt darin mit einem Ring aus Moosgummi-Klebeband. Hinten offen bzw. mit Kabelloch. Beispiele: Riemann-Stil 1er-Halter ca. 9,50 €, Hoffmann-Speedster „Instrumentengehäuse 52 mm kurz“ ca. 15 €. | 10–15 € |
-| 5 | **Moosgummi-Dichtband** 3 mm stark, selbstklebend (Baumarkt) | Dial im Halter festklemmen, Spalt auffüllen | 1–2 Lagen um den Dial wickeln, bis er stramm sitzt. Eine Scheibe davon hinter den Dial legen, wenn er weiter vorne sitzen soll. | 3 € |
+Ein fertiges, schlichtes Kästchen: **54 × 54 × 16 mm**, 2"-Farbdisplay (320 × 240) mit Touch,
+Lautsprecher, Bluetooth und **eingebautem Lagesensor** für die Neigungsanzeige. Kein Löten,
+kein Gehäusebau. Unter dem Display liegen drei Touch-Tastenpunkte.
 
-## Für den Neigungsmesser (sehr empfohlen)
+![Vorschau](docs/bilder/vorschau_reifen.png)
+
+## Einkaufsliste
 
 | # | Teil | Wofür | Worauf achten | ca. Preis |
 |---|---|---|---|---|
-| 6 | **M5Stack Unit IMU (MPU6886)**, Artikel U095 | Seiten- und Längsneigung, Stellplatz-Ausrichtung | Einfach per beiliegendem Grove-Kabel in **Port A** des Dial stecken, **kein Löten**. Ist oft ausverkauft – Alternative: jedes MPU-6050-Modul mit Grove-Adapterkabel. | 7–10 € |
-| 7 | Grove-Kabel 20 cm (optional) | falls die IMU nicht direkt hinter dem Dial sitzt | M5Stack „Grove Cable 20cm“ | 2 € |
+| 1 | **M5Stack Core2** (v1.1 oder Nachfolger v1.3) | das komplette Gerät | v1.1 wird teils abverkauft, v1.3 hat einen anderen Lagesensor – beide werden von der Firmware erkannt. | 45–55 € |
+| 2 | **4× BLE-Ventilkappen-Reifensensoren** | Druck + Temperatur je Rad | Muss eine der Apps unten nutzen. **Messbereich mind. 6 bar (87 psi)** – der Sprinter fährt hinten über 4 bar. Mit Kontermuttern. | 25–45 € |
+| 3 | **USB-Ladeadapter fürs Auto**, fest verbaut (12 V → USB-C, z. B. Einbau-USB-Buchse) **oder** Kfz-USB-Stecker | Strom | Auf **Zündungsplus** anschließen, damit das Display mit der Zündung ausgeht. Für Festeinbau: Sicherungsabgriff („Add-A-Fuse“, Sicherungstyp im Sprinter vorher nachschauen) + 2-A-Sicherung. | 10–20 € |
+| 4 | **USB-C-Kabel, 90° gewinkelt**, 0,5–1 m | Kabel verschwindet seitlich | Winkelstecker, damit es flach anliegt. | 5–8 € |
+| 5 | **3M Dual Lock** (Druckverschluss-Klettband) oder **3M VHB**-Klebepad | Befestigung | Dual Lock hält bombenfest und das Gerät lässt sich trotzdem abnehmen (zum Flashen oder gegen Diebstahl). Fläche mit Isopropanol entfetten. | 5–10 € |
 
-## Einbau ohne Basteln am Gehäuse
+**Gesamt: ca. 90–130 €.**
 
-1. Halter mit den beiliegenden Schrauben oder 3M-VHB-Klebeband aufs Armaturenbrett setzen
-   (z. B. oben auf die Ablage oder an die A-Säule). Fläche vorher mit Isopropanol entfetten.
-2. Ein kleines Loch (Ø 10–14 mm, Stufenbohrer) hinter dem Halter für die Kabel, Gummitülle rein.
-3. Unit IMU mit doppelseitigem Klebeband hinten in den Halter oder hinter die Verkleidung kleben –
-   sie muss fest sitzen, nicht baumeln.
-4. Moosgummi um den Dial wickeln und ihn in den Halter drücken.
+### Alternative: M5Stack CoreS3
+Gleiche Größe, schnellerer Chip, ebenfalls mit Lagesensor (Firmware-Variante `m5cores3`). Etwas teurer.
+Die günstige **CoreS3 SE** hat **keinen** Lagesensor – dann zusätzlich die **M5Stack Unit IMU** (ca. 8 €)
+in Port A stecken. Ohne Neigungsanzeige reicht die SE so wie sie ist.
 
-**Drehring verdeckt?** Sitzt der Dial so tief, dass man den Ring nicht greifen kann, ist das egal:
-Die Firmware lässt sich komplett **per Touch** bedienen (tippen, lange tippen, wischen).
+## Einbau
 
-*Wer doch einen 3D-Drucker hat:* Passgenaue Halter liegen in `hardware/` – optional.
-
-## Werkzeug
-
-Multimeter (Zündungsplus finden), Abisolierzange, Crimpzange, Verkleidungskeile, Stufenbohrer, USB-C-Kabel zum Flashen.
+1. Platz wählen: oben auf dem Armaturenbrett, an der Mittelkonsole oder neben dem Radio.
+   **Nicht in die pralle Sonne hinter der Scheibe** – der Core2 hat einen kleinen Akku eingebaut,
+   der Hitze über 60 °C nicht mag. Ein schattiger Platz unterhalb der Scheibenkante ist ideal.
+2. Fläche entfetten, Dual Lock auf Gerät und Armaturenbrett, zusammendrücken.
+3. USB-Kabel seitlich hinter der Verkleidung zur USB-Buchse/zum Adapter führen.
+4. Der Lagesensor ist im Gerät – **es muss fest sitzen** (nicht in einer wackeligen Handyhalterung),
+   sonst zeigt die Neigung Unsinn.
+5. Danach im Menü: Sensoren anlernen, Neigung nullen (siehe README).
 
 ## Welche Reifensensoren?
 
 Die Firmware erkennt automatisch diese Bauarten (Formate aus dem Open-Source-Projekt [tpms_ble](https://github.com/bkbilly/tpms_ble)):
 
-| Typ | Erkennbar an | Hinweis |
-|---|---|---|
-| A | App **„TPMSII“**, Bluetooth-Name `TPMS1_…`–`TPMS4_…` | sehr verbreitet, meist günstigste Wahl |
-| B | App **„SYTPMS“** | |
-| D | App **„ITPMS (K)“** / „LYTPMS“, Marke WODHMIEY | |
-| F | „HRTPMS“ | |
-| G | App **„Ai TPMS“** (AI-8000), Name `AI-…` | |
-| H | „TC.TPMS“ | |
-
-Am einfachsten: In der Produktbeschreibung steht, **welche Handy-App** man nutzen soll. Ist es eine der Apps oben, passt der Sensor. Prüfen kannst du es vorab mit der App **nRF Connect** (Gerätename/Daten).
-Kommt ein unbekannter Typ, `DEBUG_BLE 1` setzen und das Log schicken – dann lässt sich ein Dekoder ergänzen.
-
-## Gesamtkosten
-
-| Ausbau | ca. |
+| Typ | Erkennbar an |
 |---|---|
-| Nur Reifendruck | 85–115 € |
-| Reifendruck + Neigung | 95–125 € |
+| A | App **„TPMSII“**, Bluetooth-Name `TPMS1_…`–`TPMS4_…` – sehr verbreitet, meist günstigste Wahl |
+| B | App **„SYTPMS“** |
+| D | App **„ITPMS (K)“** / „LYTPMS“, Marke WODHMIEY |
+| F | „HRTPMS“ |
+| G | App **„Ai TPMS“** (AI-8000), Name `AI-…` |
+| H | „TC.TPMS“ |
+
+In der Produktbeschreibung steht, **welche Handy-App** man nutzen soll – ist es eine davon, passt der Sensor.
+Unbekannter Typ? `DEBUG_BLE 1` setzen und das Log schicken, dann lässt sich ein Dekoder ergänzen.

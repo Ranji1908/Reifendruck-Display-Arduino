@@ -1,16 +1,17 @@
-// Reifendruck- und Neigungsanzeige fuer den Sprinter W906 – Variante M5Stack Dial
+// Reifendruck- und Neigungsanzeige fuer den Sprinter W906 – Variante M5Stack Core2 / CoreS3
 //
-// Hardware: M5Stack Dial (ESP32-S3, rundes 1,28"-Display 240x240, Drehring, Summer)
+// Hardware: M5Stack Core2 (empfohlen) oder CoreS3: 2"-Touchdisplay 320x240 im fertigen Gehaeuse,
+//           Lautsprecher und Lagesensor (Neigung) sind eingebaut.
 //           + 4 BLE-Ventilkappen-Sensoren
-//           + optional M5Stack "Unit IMU" (MPU6886) an Port A fuer die Neigung
 //
-// Bedienung:
-//   Drehring        -> Seite wechseln: REIFEN / NEIGUNG / AUSRICHTEN
-//   kurz druecken   -> Strasse <-> Offroad   (bei Alarm: Alarm quittieren)
-//   lang druecken   -> Menue (drehen = waehlen, kurz = bearbeiten/OK, lang = zurueck)
-//   Alles geht auch per Touch: tippen / lange tippen / wischen statt drehen
+// Bedienung per Touch (beim Core2 gehen auch die drei Tasten-Punkte unter dem Display):
+//   Hauptanzeige:  links tippen  = vorige Seite      rechts tippen = naechste Seite
+//                  Mitte tippen  = Strasse <-> Offroad (bei Alarm: quittieren)
+//                  lange halten  = Menue              wischen       = Seite wechseln
+//   Menue:         Eintrag antippen = aendern, Leiste unten: hoch / zurueck / runter
+//   Wert aendern:  Leiste unten: - / OK / +
 
-#include <M5Dial.h>
+#include <M5Unified.h>
 #include <Preferences.h>
 
 #include "BleTpms.h"
@@ -18,25 +19,24 @@
 
 using namespace tpms;
 
-// Zaehlimpulse des Drehrings pro Rastung (bei Bedarf auf 2 aendern)
-#ifndef DIAL_COUNTS_PER_DETENT
-#define DIAL_COUNTS_PER_DETENT 4
-#endif
 #define MENU_TIMEOUT_MS 30000
 #define OVERLAY_MS 1500
+#define W 320
+#define H 240
+#define BAR_Y 196  // Ab hier: Bedienleiste in Menue/Editor
 
 // ============================================================ Farben
 static const uint16_t C_BG = TFT_BLACK;
 static const uint16_t C_TEXT = TFT_WHITE;
-static const uint16_t C_DIM = 0x7BEF;    // grau
-static const uint16_t C_DARK = 0x2945;   // dunkelgrau
-static const uint16_t C_OK = 0x07E8;     // gruen
-static const uint16_t C_WARN = 0xFD20;   // orange
-static const uint16_t C_CRIT = 0xF800;   // rot
-static const uint16_t C_ROAD = 0x5D7F;   // hellblau
-static const uint16_t C_OFF = 0xFE60;    // gelb-orange
+static const uint16_t C_DIM = 0x7BEF;   // grau
+static const uint16_t C_DARK = 0x2945;  // dunkelgrau
+static const uint16_t C_OK = 0x07E8;    // gruen
+static const uint16_t C_WARN = 0xFD20;  // orange
+static const uint16_t C_CRIT = 0xF800;  // rot
+static const uint16_t C_ROAD = 0x5D7F;  // hellblau
+static const uint16_t C_OFF = 0xFE60;   // gelb-orange
 
-static M5Canvas canvas(&M5Dial.Display);
+static M5Canvas canvas(&M5.Display);
 
 // ============================================================ Zustand
 static Settings settings;
@@ -72,8 +72,8 @@ static void showOverlay(const char* text) {
 static const uint8_t SETTINGS_VERSION = 2;
 
 static void applySettings() {
-  M5Dial.Display.setBrightness(settings.contrast);
-  M5Dial.Speaker.setVolume(settings.volume);
+  M5.Display.setBrightness(settings.contrast);
+  M5.Speaker.setVolume(settings.volume);
   tilt.setup({settings.level[0], settings.level[1], settings.level[2]}, settings.mountQuarter);
 }
 
@@ -112,10 +112,11 @@ struct Beeper {
   }
   void stop() {
     pattern = nullptr;
-    M5Dial.Speaker.stop();
+    repeat = false;
+    M5.Speaker.stop();
   }
   void on() {
-    if (settings.buzzer) M5Dial.Speaker.tone(freq, pattern[idx]);
+    if (settings.buzzer) M5.Speaker.tone(freq, pattern[idx]);
   }
   void update() {
     if (!pattern || millis() - stepStart < pattern[idx]) return;
@@ -137,23 +138,24 @@ static const uint16_t BEEP_TILT[] = {80, 60, 80, 60, 80, 10};
 static const uint16_t BEEP_OK[] = {60, 60, 160, 5};
 
 static void click() {
-  if (!beeper.repeat && settings.buzzer) M5Dial.Speaker.tone(6000, 15);
+  if (!beeper.repeat && settings.buzzer) M5.Speaker.tone(5000, 12);
 }
 
-// ============================================================ Menue
+// ============================================================ Menue-Daten
 enum MenuItem : uint8_t {
   M_ROAD_F, M_ROAD_R, M_OFF_F, M_OFF_R, M_WARN, M_CRIT, M_HIGH, M_LEAK_BAR, M_LEAK_MIN, M_PAIR,
   M_CALIB, M_MOUNT, M_TILT_R, M_TILT_P, M_WB, M_TRACK, M_BRIGHT, M_VOL, M_SOUND, M_DEMO, M_BACK,
   M_COUNT
 };
 static const char* const MENU_LABELS[M_COUNT] = {
-    "Soll Strasse vorn", "Soll Strasse hint.", "Soll Offroad vorn", "Soll Offroad hint.",
-    "Warnung ab",        "Kritisch ab",        "Zu hoch ab",        "Leck: Verlust",
-    "Leck: Zeitraum",    "Sensoren anlernen",  "Neigung nullen",    "Einbaulage Sensor",
-    "Warnung Seite",     "Warnung Laengs",     "Radstand",          "Spurweite",
-    "Helligkeit",        "Lautstaerke",        "Warnton",           "Demo-Modus",
+    "Soll Strasse vorn",  "Soll Strasse hinten", "Soll Offroad vorn", "Soll Offroad hinten",
+    "Warnung ab",         "Kritisch ab",         "Zu hoch ab",        "Leck: Verlust",
+    "Leck: Zeitraum",     "Sensoren anlernen",   "Neigung nullen",    "Einbaulage Sensor",
+    "Warnung Seite",      "Warnung Laengs",      "Radstand",          "Spurweite",
+    "Helligkeit",         "Lautstaerke",         "Warnton",           "Demo-Modus",
     "< Zurueck"};
-static int menuIdx = 0;
+static int menuIdx = 0, menuTop = 0;
+static const int MENU_ROWS = 4, ROW_H = 40, ROW_Y0 = 32;
 
 static float* targetPtr(int item) {
   switch (item) {
@@ -267,8 +269,7 @@ static void updateTilt() {
   if (!imuOk) return;
   M5.Imu.update();
   if (!M5.Imu.getAccel(&a.x, &a.y, &a.z)) return;
-  // Tiefpass gegen Fahrbahnstoesse (Zeitkonstante ca. 1 s)
-  const float k = 0.02f;
+  const float k = 0.02f;  // Tiefpass, Zeitkonstante ca. 1 s
   accelFilt.x += k * (a.x - accelFilt.x);
   accelFilt.y += k * (a.y - accelFilt.y);
   accelFilt.z += k * (a.z - accelFilt.z);
@@ -276,10 +277,9 @@ static void updateTilt() {
 }
 
 static void calibrateLevel() {
-  // 1 s mitteln, Fahrzeug muss stehen
   Vec3 sum = {0, 0, 0};
   int n = 0;
-  for (int i = 0; i < 50; ++i) {
+  for (int i = 0; i < 50; ++i) {  // 1 s mitteln, Fahrzeug muss stehen
     Vec3 a;
     M5.Imu.update();
     if (M5.Imu.getAccel(&a.x, &a.y, &a.z)) {
@@ -323,8 +323,7 @@ static bool blinkOn() { return (millis() / 400) % 2 == 0; }
 
 static uint16_t sevColor(uint8_t sev) {
   if (sev >= 3) return C_CRIT;
-  if (sev == 2) return C_WARN;
-  if (sev == 1) return C_WARN;
+  if (sev >= 1) return C_WARN;
   return C_OK;
 }
 
@@ -336,32 +335,45 @@ static void text(const char* s, int x, int y, const lgfx::IFont* font, uint16_t 
   canvas.drawString(s, x, y);
 }
 
-// Rechteck um (cx,cy) gedreht zeichnen (Grad, im Uhrzeigersinn)
-static void fillRotRect(float cx, float cy, float ox, float oy, float w, float h, float deg, uint16_t col) {
+// Rechteck um (cx,cy) gedreht zeichnen (Grad, im Uhrzeigersinn), k = Skalierung
+static void fillRotRect(float cx, float cy, float ox, float oy, float w, float h, float deg, uint16_t col,
+                        float k = 1.0f) {
   float s = sinf(deg * 0.0174533f), c = cosf(deg * 0.0174533f);
   float xs[4] = {ox, ox + w, ox + w, ox}, ys[4] = {oy, oy, oy + h, oy + h};
   int px[4], py[4];
   for (int i = 0; i < 4; ++i) {
-    px[i] = (int)lroundf(cx + xs[i] * c - ys[i] * s);
-    py[i] = (int)lroundf(cy + xs[i] * s + ys[i] * c);
+    px[i] = (int)lroundf(cx + k * (xs[i] * c - ys[i] * s));
+    py[i] = (int)lroundf(cy + k * (xs[i] * s + ys[i] * c));
   }
   canvas.fillTriangle(px[0], py[0], px[1], py[1], px[2], py[2], col);
   canvas.fillTriangle(px[0], py[0], px[2], py[2], px[3], py[3], col);
 }
 
+// Kopfzeile: Modus links, Titel/Status rechts
+static void drawHeader(const char* right, uint16_t rightColor) {
+  text(modeName(currentMode()), 8, 14, &fonts::FreeSansBold9pt7b, currentMode() == ROAD ? C_ROAD : C_OFF,
+       middle_left);
+  if (settings.demo) text("DEMO", 118, 14, &fonts::Font2, C_WARN, middle_left);
+  if (right) text(right, W - 8, 14, &fonts::FreeSansBold9pt7b, rightColor, middle_right);
+  canvas.drawFastHLine(0, 28, W, C_DARK);
+}
+
 static void drawPageDots() {
   for (int i = 0; i < PAGE_COUNT; ++i) {
-    int x = 120 + (i - 1) * 12;
-    if (i == page) canvas.fillCircle(x, 229, 3, C_TEXT);
-    else canvas.drawCircle(x, 229, 3, C_DIM);
+    int x = W / 2 + (i - 1) * 14;
+    if (i == page) canvas.fillCircle(x, 231, 3, C_TEXT);
+    else canvas.drawCircle(x, 231, 3, C_DIM);
   }
 }
 
-static void drawModeHeader(const char* title) {
-  text(title, 120, 24, &fonts::FreeSansBold9pt7b, C_DIM);
-  text(modeName(currentMode()), 120, 44, &fonts::FreeSansBold9pt7b,
-       currentMode() == ROAD ? C_ROAD : C_OFF);
-  if (settings.demo) text("DEMO", 120, 62, &fonts::Font0, C_WARN);
+// Bedienleiste unten mit drei Feldern (fuer Touch; beim Core2 liegen die Tasten-Punkte darunter)
+static void drawBar(const char* l, const char* m, const char* r) {
+  const char* lab[3] = {l, m, r};
+  for (int i = 0; i < 3; ++i) {
+    int x = i * (W / 3);
+    canvas.fillRoundRect(x + 4, BAR_Y + 4, W / 3 - 8, H - BAR_Y - 8, 8, C_DARK);
+    text(lab[i], x + W / 6, (BAR_Y + H) / 2, &fonts::FreeSansBold9pt7b, C_TEXT);
+  }
 }
 
 // ============================================================ Seite: Reifen
@@ -369,65 +381,61 @@ static void drawTiresPage() {
   Wheel worst = alarms.worstWheel(states);
   uint8_t worstSev = worst == WHEEL_COUNT ? 0 : severity(states[worst]);
 
-  // Ring am Rand in der Farbe des schlechtesten Rads
-  uint16_t ring = worstSev >= 2 ? (blinkOn() ? sevColor(worstSev) : C_BG) : C_DARK;
-  canvas.fillArc(120, 120, 119, 113, 0, 360, ring);
-
-  text(modeName(currentMode()), 120, 30, &fonts::FreeSansBold9pt7b, currentMode() == ROAD ? C_ROAD : C_OFF);
-  if (settings.demo) text("DEMO", 120, 48, &fonts::Font0, C_WARN);
-
-  // Transporter von oben
-  canvas.fillRoundRect(102, 64, 36, 112, 9, C_DARK);
-  canvas.drawRoundRect(102, 64, 36, 112, 9, C_DIM);
-  canvas.drawFastHLine(106, 84, 28, C_DIM);   // Windschutzscheibe
-  canvas.drawFastHLine(106, 98, 28, C_DIM);   // Kabine
-  const int wx[4] = {95, 138, 95, 138}, wy[4] = {72, 72, 144, 144};
-  for (int w = 0; w < WHEEL_COUNT; ++w) {
-    uint8_t sev = severity(states[w]);
-    uint16_t col = (states[w] == State::NotPaired || states[w] == State::NoData) ? C_DIM : sevColor(sev);
-    if (sev >= 2 && !blinkOn()) col = C_BG;
-    canvas.fillRoundRect(wx[w], wy[w], 7, 22, 2, col);
-  }
-
-  // Werte
-  const int vx[4] = {56, 184, 56, 184}, vy[4] = {94, 94, 156, 156};
-  for (int w = 0; w < WHEEL_COUNT; ++w) {
-    State s = states[w];
-    uint8_t sev = severity(s);
-    char big[8], small[16];
-    bool noVal = s == State::NotPaired || s == State::NoData || !monitors[w].hasData();
-    if (noVal) strcpy(big, "--");
-    else snprintf(big, sizeof(big), "%.1f", monitors[w].pressure());
-    uint16_t col = noVal ? C_DIM : (sev >= 2 ? sevColor(sev) : C_TEXT);
-    if (sev >= 2 && !blinkOn()) col = C_DIM;
-    text(big, vx[w], vy[w], &fonts::FreeSansBold18pt7b, col);
-
-    if (sev > 0 || noVal) snprintf(small, sizeof(small), "%s", stateText(s));
-    else if (monitors[w].battery() < 20) snprintf(small, sizeof(small), "Batt %u%%", (unsigned)monitors[w].battery());
-    else snprintf(small, sizeof(small), "%.0fC  /%.1f", monitors[w].temperature(),
-                  targetFor(settings, currentMode(), (Wheel)w));
-    text(small, vx[w], vy[w] + 24, &fonts::Font2, sev > 0 ? sevColor(sev) : C_DIM);
-  }
-
-  // Statuszeile
+  // Statusmeldung oben rechts
   char status[24];
   uint16_t scol = C_DIM;
   if (worstSev >= 1) {
     snprintf(status, sizeof(status), "%s %s", wheelName(worst), stateText(states[worst]));
-    scol = sevColor(worstSev);
+    scol = (worstSev >= 2 && !blinkOn()) ? C_BG : sevColor(worstSev);
   } else {
     bool any = false;
     for (int w = 0; w < WHEEL_COUNT; ++w) any |= states[w] == State::Ok;
     snprintf(status, sizeof(status), "%s", any ? "alles OK" : "keine Sensoren");
   }
-  text(status, 120, 207, &fonts::FreeSansBold9pt7b, scol);
+  drawHeader(status, scol);
+
+  // Transporter von oben (Fahrtrichtung nach oben)
+  canvas.fillRoundRect(141, 42, 38, 170, 10, C_DARK);
+  canvas.drawRoundRect(141, 42, 38, 170, 10, C_DIM);
+  canvas.drawFastHLine(145, 64, 30, C_DIM);  // Windschutzscheibe
+  canvas.drawFastHLine(145, 80, 30, C_DIM);  // Kabine
+  const int wx[4] = {133, 180, 133, 180}, wy[4] = {52, 52, 170, 170};
+  for (int w = 0; w < WHEEL_COUNT; ++w) {
+    uint8_t sev = severity(states[w]);
+    uint16_t col = (states[w] == State::NotPaired || states[w] == State::NoData) ? C_DIM : sevColor(sev);
+    if (sev >= 2 && !blinkOn()) col = C_BG;
+    canvas.fillRoundRect(wx[w], wy[w], 7, 28, 2, col);
+  }
+
+  // Werte: links rechtsbuendig an den Transporter, rechts linksbuendig
+  const int vy[4] = {78, 78, 178, 178};
+  for (int w = 0; w < WHEEL_COUNT; ++w) {
+    const bool left = (w == FL || w == RL);
+    const int x = left ? 120 : 200;
+    const uint8_t datum = left ? middle_right : middle_left;
+    State s = states[w];
+    uint8_t sev = severity(s);
+    char big[8], small[24];
+    bool noVal = s == State::NotPaired || s == State::NoData || !monitors[w].hasData();
+    if (noVal) strcpy(big, "--");
+    else snprintf(big, sizeof(big), "%.1f", monitors[w].pressure());
+    uint16_t col = noVal ? C_DIM : (sev >= 2 ? sevColor(sev) : C_TEXT);
+    if (sev >= 2 && !blinkOn()) col = C_DARK;
+    text(big, x, vy[w], &fonts::FreeSansBold24pt7b, col, datum);
+
+    if (sev > 0 || noVal) snprintf(small, sizeof(small), "%s", stateText(s));
+    else if (monitors[w].battery() < 20) snprintf(small, sizeof(small), "Batterie %u%%", (unsigned)monitors[w].battery());
+    else snprintf(small, sizeof(small), "%.0fC  Soll %.1f", monitors[w].temperature(),
+                  targetFor(settings, currentMode(), (Wheel)w));
+    text(small, x, vy[w] + 32, &fonts::Font2, sev > 0 ? sevColor(sev) : C_DIM, datum);
+  }
 }
 
 // ============================================================ Seite: Neigung
 static void drawNoImu() {
-  text("Kein Lagesensor", 120, 105, &fonts::FreeSansBold9pt7b, C_WARN);
-  text("Unit IMU an Port A", 120, 130, &fonts::Font2, C_DIM);
-  text("stecken, neu starten", 120, 148, &fonts::Font2, C_DIM);
+  text("Kein Lagesensor gefunden", W / 2, 110, &fonts::FreeSansBold9pt7b, C_WARN);
+  text("Core2/CoreS3 haben einen eingebaut;", W / 2, 138, &fonts::Font2, C_DIM);
+  text("sonst Unit IMU an Port A stecken", W / 2, 156, &fonts::Font2, C_DIM);
 }
 
 static uint16_t tiltColor(float v, float warn) {
@@ -436,184 +444,218 @@ static uint16_t tiltColor(float v, float warn) {
 }
 
 static void drawTiltPage() {
-  drawModeHeader("NEIGUNG");
+  drawHeader("NEIGUNG", C_DIM);
   if (!imuOk && !settings.demo) return drawNoImu();
 
-  const float cxL = 72, cxR = 168, cy = 112;
-  canvas.drawFastHLine(30, (int)cy + 22, 84, C_DARK);    // Horizont
-  canvas.drawFastHLine(126, (int)cy + 22, 84, C_DARK);
+  const float cxL = 85, cxR = 235, cy = 100, k = 1.4f;
+  canvas.drawFastHLine(20, (int)(cy + 24 * k), 130, C_DARK);  // Horizont
+  canvas.drawFastHLine(170, (int)(cy + 24 * k), 130, C_DARK);
 
-  // Heckansicht: dreht mit der Seitenneigung (rechts tiefer = im Uhrzeigersinn)
+  // Heckansicht: rechts tiefer = im Uhrzeigersinn
   uint16_t cr = tiltColor(rollDeg, settings.tiltWarnRoll);
-  fillRotRect(cxL, cy, -24, -26, 48, 42, rollDeg, cr);     // Aufbau
-  fillRotRect(cxL, cy, -18, -20, 36, 10, rollDeg, C_BG);   // Heckscheibe
-  fillRotRect(cxL, cy, -24, 16, 12, 8, rollDeg, C_DIM);    // Rad links
-  fillRotRect(cxL, cy, 12, 16, 12, 8, rollDeg, C_DIM);     // Rad rechts
+  fillRotRect(cxL, cy, -24, -26, 48, 42, rollDeg, cr, k);
+  fillRotRect(cxL, cy, -18, -20, 36, 10, rollDeg, C_BG, k);
+  fillRotRect(cxL, cy, -24, 16, 12, 8, rollDeg, C_DIM, k);
+  fillRotRect(cxL, cy, 12, 16, 12, 8, rollDeg, C_DIM, k);
 
   // Seitenansicht (Front rechts): Front hoeher = gegen den Uhrzeigersinn
   uint16_t cp = tiltColor(pitchDeg, settings.tiltWarnPitch);
   float pd = -pitchDeg;
-  fillRotRect(cxR, cy, -36, -24, 66, 40, pd, cp);          // Kasten
-  fillRotRect(cxR, cy, 30, -10, 10, 26, pd, cp);           // Motorhaube
-  fillRotRect(cxR, cy, 18, -20, 12, 12, pd, C_BG);         // Seitenfenster
-  fillRotRect(cxR, cy, -30, 16, 12, 8, pd, C_DIM);         // Rad hinten
-  fillRotRect(cxR, cy, 18, 16, 12, 8, pd, C_DIM);          // Rad vorne
+  fillRotRect(cxR, cy, -36, -24, 66, 40, pd, cp, k);
+  fillRotRect(cxR, cy, 30, -10, 10, 26, pd, cp, k);
+  fillRotRect(cxR, cy, 18, -20, 12, 12, pd, C_BG, k);
+  fillRotRect(cxR, cy, -30, 16, 12, 8, pd, C_DIM, k);
+  fillRotRect(cxR, cy, 18, 16, 12, 8, pd, C_DIM, k);
 
   char buf[16];
   snprintf(buf, sizeof(buf), "%.0f", fabsf(rollDeg));
-  text(buf, (int)cxL, 162, &fonts::FreeSansBold18pt7b, cr);
+  text(buf, (int)cxL, 175, &fonts::FreeSansBold24pt7b, cr);
   snprintf(buf, sizeof(buf), "%.0f", fabsf(pitchDeg));
-  text(buf, (int)cxR, 162, &fonts::FreeSansBold18pt7b, cp);
-  text(fabsf(rollDeg) < 1 ? "Seite" : (rollDeg > 0 ? "rechts tief" : "links tief"), (int)cxL, 188,
+  text(buf, (int)cxR, 175, &fonts::FreeSansBold24pt7b, cp);
+  text(fabsf(rollDeg) < 1 ? "Seite" : (rollDeg > 0 ? "rechts tiefer" : "links tiefer"), (int)cxL, 208,
        &fonts::Font2, C_DIM);
-  text(fabsf(pitchDeg) < 1 ? "Laengs" : (pitchDeg > 0 ? "bergauf" : "bergab"), (int)cxR, 188, &fonts::Font2,
-       C_DIM);
-  text("Grad", 120, 162, &fonts::Font2, C_DARK);
-  if (tiltWarn && blinkOn()) canvas.fillArc(120, 120, 119, 113, 0, 360, C_CRIT);
+  text(fabsf(pitchDeg) < 1 ? "Laengs" : (pitchDeg > 0 ? "bergauf" : "bergab"), (int)cxR, 208, &fonts::Font2, C_DIM);
+  text("Grad", W / 2, 175, &fonts::Font2, C_DIM);
+  if (tiltWarn && blinkOn()) canvas.drawRect(0, 0, W, H, C_CRIT), canvas.drawRect(1, 1, W - 2, H - 2, C_CRIT);
 }
 
 // ============================================================ Seite: Ausrichten
 static void drawLevelPage() {
-  drawModeHeader("AUSRICHTEN");
+  drawHeader("AUSRICHTEN", C_DIM);
   if (!imuOk && !settings.demo) return drawNoImu();
 
   // Libelle: Blase wandert zur hoeheren Seite
-  const int cx = 120, cy = 128, r = 34;
+  const int cx = W / 2, cy = 122, r = 52;
   canvas.drawCircle(cx, cy, r, C_DIM);
-  canvas.drawCircle(cx, cy, 8, C_DARK);
+  canvas.drawCircle(cx, cy, 11, C_DARK);
   canvas.drawFastHLine(cx - r, cy, 2 * r, C_DARK);
   canvas.drawFastVLine(cx, cy - r, 2 * r, C_DARK);
-  float bx = -rollDeg * 6.0f, by = -pitchDeg * 6.0f;  // 6 px pro Grad
+  float bx = -rollDeg * 8.0f, by = -pitchDeg * 8.0f;  // 8 px pro Grad
   float d = sqrtf(bx * bx + by * by);
-  if (d > r - 7) {
-    bx *= (r - 7) / d;
-    by *= (r - 7) / d;
+  if (d > r - 10) {
+    bx *= (r - 10) / d;
+    by *= (r - 10) / d;
   }
   bool level = fabsf(rollDeg) < 0.5f && fabsf(pitchDeg) < 0.5f;
-  canvas.fillCircle(cx + (int)bx, cy + (int)by, 7, level ? C_OK : C_WARN);
+  canvas.fillCircle(cx + (int)bx, cy + (int)by, 10, level ? C_OK : C_WARN);
 
   float lift[WHEEL_COUNT];
   levelingLifts(rollDeg, pitchDeg, settings.wheelbaseCm, settings.trackCm, lift);
-  const int lx[4] = {50, 190, 50, 190}, ly[4] = {100, 100, 160, 160};
+  const int lx[4] = {55, 265, 55, 265}, ly[4] = {75, 75, 165, 165};
   for (int w = 0; w < WHEEL_COUNT; ++w) {
     char buf[12];
     if (lift[w] < 0.5f) strcpy(buf, "0");
     else snprintf(buf, sizeof(buf), "+%.0f", lift[w]);
-    text(buf, lx[w], ly[w], &fonts::FreeSansBold12pt7b, lift[w] < 0.5f ? C_OK : C_TEXT);
-    text(wheelName((Wheel)w), lx[w], ly[w] + 20, &fonts::Font2, C_DIM);
+    text(buf, lx[w], ly[w], &fonts::FreeSansBold18pt7b, lift[w] < 0.5f ? C_OK : C_TEXT);
+    text(wheelName((Wheel)w), lx[w], ly[w] + 26, &fonts::Font2, C_DIM);
   }
-  if (level) text("EBEN", 120, 190, &fonts::FreeSansBold9pt7b, C_OK);
-  else text("cm unterlegen", 120, 190, &fonts::Font2, C_DIM);
+  if (level) text("EBEN", W / 2, 205, &fonts::FreeSansBold9pt7b, C_OK);
+  else text("cm unter die Raeder legen", W / 2, 205, &fonts::Font2, C_DIM);
 }
 
 // ============================================================ Menue zeichnen
-static void drawMenu(bool editing) {
-  canvas.fillArc(120, 120, 119, 115, 0, 360, editing ? C_WARN : C_DARK);
-  if (editing) {
-    text(MENU_LABELS[menuIdx], 120, 70, &fonts::FreeSansBold9pt7b, C_DIM);
+static void drawMenu() {
+  text("Einstellungen", 8, 14, &fonts::FreeSansBold9pt7b, C_DIM, middle_left);
+  canvas.drawFastHLine(0, 28, W, C_DARK);
+  if (menuIdx < menuTop) menuTop = menuIdx;
+  if (menuIdx >= menuTop + MENU_ROWS) menuTop = menuIdx - MENU_ROWS + 1;
+  for (int r = 0; r < MENU_ROWS && menuTop + r < M_COUNT; ++r) {
+    int i = menuTop + r, y = ROW_Y0 + r * ROW_H;
+    if (i == menuIdx) canvas.fillRoundRect(4, y + 2, W - 8, ROW_H - 4, 8, C_DARK);
+    text(MENU_LABELS[i], 14, y + ROW_H / 2, &fonts::FreeSans9pt7b, C_TEXT, middle_left);
     char val[20];
-    menuValueText(menuIdx, val, sizeof(val));
-    text(val, 120, 120, &fonts::FreeSansBold18pt7b, C_TEXT);
-    text("drehen: aendern", 120, 168, &fonts::Font2, C_DIM);
-    text("druecken: OK", 120, 186, &fonts::Font2, C_DIM);
-    return;
+    menuValueText(i, val, sizeof(val));
+    text(val, W - 14, y + ROW_H / 2, &fonts::FreeSansBold9pt7b, C_ROAD, middle_right);
   }
-  text("MENUE", 120, 26, &fonts::FreeSansBold9pt7b, C_DIM);
-  for (int off = -2; off <= 2; ++off) {
-    int i = menuIdx + off;
-    if (i < 0 || i >= M_COUNT) continue;
-    int y = 120 + off * 36;
-    if (off == 0) {
-      canvas.fillRoundRect(18, y - 24, 204, 48, 14, C_DARK);
-      text(MENU_LABELS[i], 120, y - 8, &fonts::FreeSansBold9pt7b, C_TEXT);
-      char val[20];
-      menuValueText(i, val, sizeof(val));
-      text(val, 120, y + 12, &fonts::Font2, C_ROAD);
-    } else {
-      text(MENU_LABELS[i], 120, y + (off < 0 ? -6 : 6), &fonts::Font2, abs(off) == 1 ? C_DIM : C_DARK);
-    }
-  }
+  drawBar("hoch", "zurueck", "runter");
+}
+
+static void drawEdit() {
+  text(MENU_LABELS[menuIdx], W / 2, 50, &fonts::FreeSansBold9pt7b, C_DIM);
+  char val[20];
+  menuValueText(menuIdx, val, sizeof(val));
+  text(val, W / 2, 115, &fonts::FreeSansBold24pt7b, C_TEXT);
+  drawBar("-", "OK", "+");
 }
 
 static void drawPair() {
-  canvas.fillArc(120, 120, 119, 115, 0, 360, C_ROAD);
-  char buf[32];
-  snprintf(buf, sizeof(buf), "Anlernen %d/4", pairWheel + 1);
-  text(buf, 120, 40, &fonts::FreeSansBold9pt7b, C_DIM);
-  text(wheelName((Wheel)pairWheel), 120, 80, &fonts::FreeSansBold18pt7b, C_TEXT);
+  char buf[40];
+  snprintf(buf, sizeof(buf), "Sensoren anlernen %d/4", pairWheel + 1);
+  text(buf, 8, 14, &fonts::FreeSansBold9pt7b, C_DIM, middle_left);
+  canvas.drawFastHLine(0, 28, W, C_DARK);
+  text(wheelName((Wheel)pairWheel), W / 2, 66, &fonts::FreeSansBold24pt7b, C_TEXT);
   if (pairHasCandidate) {
     char id[12];
     formatShortId(pairCandidate.id, id, sizeof(id));
-    snprintf(buf, sizeof(buf), "%s  %s", sensorTypeName(pairCandidate.type), id);
-    text(buf, 120, 118, &fonts::Font2, C_TEXT);
-    snprintf(buf, sizeof(buf), "%.2f bar  %d dBm", pairCandidate.pressureBar, pairCandidate.rssi);
-    text(buf, 120, 138, &fonts::Font2, C_TEXT);
-    text("kurz: uebernehmen", 120, 172, &fonts::Font2, C_OK);
-    text("lang: abbrechen", 120, 190, &fonts::Font2, C_DIM);
+    snprintf(buf, sizeof(buf), "Gefunden: %s  %s", sensorTypeName(pairCandidate.type), id);
+    text(buf, W / 2, 118, &fonts::FreeSans9pt7b, C_TEXT);
+    snprintf(buf, sizeof(buf), "%.2f bar   Signal %d dBm", pairCandidate.pressureBar, pairCandidate.rssi);
+    text(buf, W / 2, 146, &fonts::FreeSans9pt7b, C_TEXT);
+    drawBar("Abbruch", "", "Nehmen");
   } else {
-    text("Sensor jetzt auf", 120, 118, &fonts::Font2, C_TEXT);
-    text("dieses Rad schrauben", 120, 136, &fonts::Font2, C_TEXT);
-    if (blinkOn()) text("suche ...", 120, 160, &fonts::Font2, C_ROAD);
-    text("kurz: ueberspringen", 120, 184, &fonts::Font2, C_DIM);
-    text("lang: abbrechen", 120, 200, &fonts::Font2, C_DIM);
+    text("Sensor jetzt auf dieses Rad schrauben", W / 2, 118, &fonts::FreeSans9pt7b, C_TEXT);
+    if (blinkOn()) text("suche ...", W / 2, 150, &fonts::FreeSans9pt7b, C_ROAD);
+    drawBar("Abbruch", "", "Weiter");
   }
 }
 
 static void drawCalib() {
-  canvas.fillArc(120, 120, 119, 115, 0, 360, C_WARN);
-  text("Neigung nullen", 120, 44, &fonts::FreeSansBold9pt7b, C_TEXT);
-  text("Fahrzeug auf ebener", 120, 80, &fonts::Font2, C_DIM);
-  text("Flaeche abstellen", 120, 98, &fonts::Font2, C_DIM);
-  char buf[24];
-  snprintf(buf, sizeof(buf), "%.1f / %.1f", rollDeg, pitchDeg);
-  text(buf, 120, 130, &fonts::FreeSansBold12pt7b, C_TEXT);
-  text("kurz: speichern", 120, 172, &fonts::Font2, C_OK);
-  text("lang: abbrechen", 120, 190, &fonts::Font2, C_DIM);
+  text("Neigung nullen", 8, 14, &fonts::FreeSansBold9pt7b, C_DIM, middle_left);
+  canvas.drawFastHLine(0, 28, W, C_DARK);
+  text("Fahrzeug auf ebener Flaeche abstellen,", W / 2, 60, &fonts::FreeSans9pt7b, C_TEXT);
+  text("dann Speichern tippen.", W / 2, 84, &fonts::FreeSans9pt7b, C_TEXT);
+  char buf[32];
+  snprintf(buf, sizeof(buf), "Seite %.1f   Laengs %.1f", rollDeg, pitchDeg);
+  text(buf, W / 2, 140, &fonts::FreeSansBold12pt7b, C_DIM);
+  drawBar("Abbruch", "", "Speichern");
 }
 
 static void drawOverlay() {
   if (!overlayText || millis() >= overlayUntil) return;
-  canvas.fillCircle(120, 120, 78, C_BG);
-  canvas.drawCircle(120, 120, 78, C_DIM);
-  text(overlayText, 120, 120, &fonts::FreeSansBold12pt7b, C_TEXT);
+  canvas.fillRoundRect(50, 80, W - 100, 80, 14, C_BG);
+  canvas.drawRoundRect(50, 80, W - 100, 80, 14, C_DIM);
+  text(overlayText, W / 2, 120, &fonts::FreeSansBold18pt7b, C_TEXT);
 }
 
 // ============================================================ Eingabe
-static int readDetents() {
-  static long consumed = 0;
-  long raw = M5Dial.Encoder.read();
-  long steps = (raw - consumed) / DIAL_COUNTS_PER_DETENT;
-  consumed += steps * DIAL_COUNTS_PER_DETENT;
-  return (int)steps;
+// Alle Eingaben (Touch, Core2-Tasten) werden auf wenige Ereignisse abgebildet.
+enum class Ev : uint8_t { None, Left, Mid, Right, Hold, Next, Prev, Row };
+
+static Ev readInput(int& row) {
+  row = -1;
+  // Core2: die drei Tasten-Punkte unter dem Display (bei CoreS3 gibt es sie nicht)
+  if (M5.BtnA.wasClicked()) return Ev::Left;
+  if (M5.BtnB.wasHold()) return Ev::Hold;
+  if (M5.BtnB.wasClicked()) return Ev::Mid;
+  if (M5.BtnC.wasClicked()) return Ev::Right;
+
+  if (!M5.Touch.getCount()) return Ev::None;
+  const auto& t = M5.Touch.getDetail();
+  if (t.y >= H) return Ev::None;  // Tastenfeld des Core2, schon oben behandelt
+  if (t.wasHold()) return Ev::Hold;
+  if (t.wasFlicked()) {
+    int dx = t.distanceX(), dy = t.distanceY();
+    if (abs(dx) > abs(dy)) return dx < 0 ? Ev::Next : Ev::Prev;
+    return dy < 0 ? Ev::Next : Ev::Prev;
+  }
+  if (!t.wasClicked()) return Ev::None;
+
+  const bool inBar = screen != Screen::Main && t.y >= BAR_Y;
+  if (screen == Screen::Menu && !inBar && t.y >= ROW_Y0) {
+    row = (t.y - ROW_Y0) / ROW_H;
+    if (row < MENU_ROWS) return Ev::Row;
+  }
+  if (screen != Screen::Main && !inBar) return Ev::None;
+  if (t.x < W / 3) return Ev::Left;
+  if (t.x >= 2 * W / 3) return Ev::Right;
+  return Ev::Mid;
+}
+
+static void activateMenuItem() {
+  click();
+  switch (menuIdx) {
+    case M_BACK: screen = Screen::Main; break;
+    case M_PAIR:
+      pairWheel = 0;
+      pairHasCandidate = false;
+      screen = Screen::Pair;
+      break;
+    case M_CALIB:
+      if (imuOk) screen = Screen::Calib;
+      else showOverlay("kein Sensor");
+      break;
+    case M_SOUND:
+      settings.buzzer = !settings.buzzer;
+      saveSettings();
+      break;
+    case M_DEMO:
+      settings.demo = !settings.demo;
+      for (auto& m : monitors) m.reset();
+      saveSettings();
+      break;
+    default: screen = Screen::Edit;
+  }
+}
+
+static void leaveEdit() {
+  clampSettings(settings);
+  applySettings();
+  saveSettings();
+  click();
+  screen = Screen::Menu;
 }
 
 static void handleInput() {
-  int steps = readDetents();
-  bool shortPress = M5Dial.BtnA.wasClicked();
-  bool longPress = M5Dial.BtnA.wasHold();
-  // Touch als Alternative zum Drehring (z.B. wenn der Dial tief in einem Halter sitzt):
-  //   tippen = kurz druecken, lange tippen = lang druecken,
-  //   wischen links/hoch = weiter, rechts/runter = zurueck
-  if (M5.Touch.getCount()) {
-    const auto& t = M5.Touch.getDetail();
-    if (t.wasClicked()) shortPress = true;
-    else if (t.wasHold()) longPress = true;
-    else if (t.wasFlicked()) {
-      int dx = t.distanceX(), dy = t.distanceY();
-      if (abs(dx) > abs(dy)) steps += dx < 0 ? 1 : -1;
-      else steps += dy < 0 ? 1 : -1;
-    }
-  }
+  int row;
+  Ev ev = readInput(row);
   uint32_t now = millis();
-  if (steps || shortPress || longPress) lastInputMs = now;
+  if (ev != Ev::None) lastInputMs = now;
 
   switch (screen) {
     case Screen::Main:
-      if (steps) {
-        page = (page + steps % PAGE_COUNT + PAGE_COUNT) % PAGE_COUNT;
-        click();
-      }
-      if (shortPress) {
+      if (ev == Ev::Left || ev == Ev::Prev) page = (page + PAGE_COUNT - 1) % PAGE_COUNT, click();
+      else if (ev == Ev::Right || ev == Ev::Next) page = (page + 1) % PAGE_COUNT, click();
+      else if (ev == Ev::Mid) {
         if (alarms.hasUnacknowledged()) {
           alarms.acknowledgeAll();
           beeper.stop();
@@ -623,74 +665,46 @@ static void handleInput() {
           showOverlay(modeName(currentMode()));
           click();
         }
-      } else if (longPress) {
+      } else if (ev == Ev::Hold) {
         screen = Screen::Menu;
-        menuIdx = 0;
+        menuIdx = menuTop = 0;
         click();
       }
       break;
 
     case Screen::Menu:
-      if (steps) {
-        menuIdx = addClamped(menuIdx, steps, 0, M_COUNT - 1);
-        click();
-      }
-      if (shortPress) {
-        click();
-        switch (menuIdx) {
-          case M_BACK: screen = Screen::Main; break;
-          case M_PAIR:
-            pairWheel = 0;
-            pairHasCandidate = false;
-            screen = Screen::Pair;
-            break;
-          case M_CALIB:
-            if (imuOk) screen = Screen::Calib;
-            else showOverlay("kein Sensor");
-            break;
-          case M_SOUND:
-            settings.buzzer = !settings.buzzer;
-            saveSettings();
-            break;
-          case M_DEMO:
-            settings.demo = !settings.demo;
-            for (auto& m : monitors) m.reset();
-            saveSettings();
-            break;
-          default: screen = Screen::Edit;
-        }
-      } else if (longPress || now - lastInputMs > MENU_TIMEOUT_MS) {
+      if (ev == Ev::Left || ev == Ev::Prev) menuIdx = addClamped(menuIdx, -1, 0, M_COUNT - 1), click();
+      else if (ev == Ev::Right || ev == Ev::Next) menuIdx = addClamped(menuIdx, 1, 0, M_COUNT - 1), click();
+      else if (ev == Ev::Row && menuTop + row < M_COUNT) {
+        menuIdx = menuTop + row;
+        activateMenuItem();
+      } else if (ev == Ev::Mid || ev == Ev::Hold || now - lastInputMs > MENU_TIMEOUT_MS) {
         screen = Screen::Main;
       }
       break;
 
     case Screen::Edit:
-      if (steps) menuAdjust(menuIdx, steps);
-      if (shortPress || longPress || now - lastInputMs > MENU_TIMEOUT_MS) {
-        clampSettings(settings);
-        applySettings();
-        saveSettings();
-        click();
-        screen = Screen::Menu;
-      }
+      if (ev == Ev::Left || ev == Ev::Prev) menuAdjust(menuIdx, -1), click();
+      else if (ev == Ev::Right || ev == Ev::Next) menuAdjust(menuIdx, 1), click();
+      else if (ev == Ev::Mid || ev == Ev::Hold || now - lastInputMs > MENU_TIMEOUT_MS) leaveEdit();
       break;
 
     case Screen::Pair:
-      if (shortPress) pairingNext(true);
-      else if (longPress) {
+      if (ev == Ev::Right) pairingNext(true);
+      else if (ev == Ev::Left || ev == Ev::Hold) {
         saveSensors();
         screen = Screen::Main;
       }
       break;
 
     case Screen::Calib:
-      if (shortPress) {
+      if (ev == Ev::Right) {
         calibrateLevel();
         beeper.play(BEEP_OK, 4, false, 4000);
         showOverlay("gespeichert");
         screen = Screen::Main;
         page = P_LEVEL;
-      } else if (longPress) {
+      } else if (ev == Ev::Left || ev == Ev::Hold) {
         screen = Screen::Menu;
       }
       break;
@@ -737,9 +751,11 @@ static void evaluateAll(uint32_t now) {
 // ============================================================ Arduino
 void setup() {
   auto cfg = M5.config();
-  cfg.external_imu = true;  // Unit IMU an Port A suchen
-  M5Dial.begin(cfg, true /* Drehring */, false /* RFID */);
-  M5Dial.BtnA.setHoldThresh(800);
+  cfg.external_imu = true;  // falls kein interner Sensor: Unit IMU an Port A suchen
+  M5.begin(cfg);
+  M5.BtnB.setHoldThresh(800);
+  M5.Touch.setHoldThresh(800);
+  M5.Display.setRotation(1);  // quer
   Serial.begin(115200);
 
   loadAll();
@@ -748,10 +764,10 @@ void setup() {
   accelFilt = {settings.level[0], settings.level[1], settings.level[2]};
 
   canvas.setColorDepth(16);
-  canvas.createSprite(240, 240);
+  canvas.createSprite(W, H);
   canvas.fillScreen(C_BG);
-  text("Reifendruck", 120, 105, &fonts::FreeSansBold12pt7b, C_TEXT);
-  text(imuOk ? "+ Neigung" : "ohne Lagesensor", 120, 135, &fonts::Font2, C_DIM);
+  text("Reifendruck", W / 2, 105, &fonts::FreeSansBold18pt7b, C_TEXT);
+  text(imuOk ? "+ Neigung" : "ohne Lagesensor", W / 2, 145, &fonts::Font2, C_DIM);
   canvas.pushSprite(0, 0);
 
   blet::begin();
@@ -759,7 +775,7 @@ void setup() {
 }
 
 void loop() {
-  M5Dial.update();
+  M5.update();
   uint32_t now = millis();
   handleInput();
   processReadings(now);
@@ -791,8 +807,8 @@ void loop() {
         else drawLevelPage();
         drawPageDots();
         break;
-      case Screen::Menu: drawMenu(false); break;
-      case Screen::Edit: drawMenu(true); break;
+      case Screen::Menu: drawMenu(); break;
+      case Screen::Edit: drawEdit(); break;
       case Screen::Pair: drawPair(); break;
       case Screen::Calib: drawCalib(); break;
     }

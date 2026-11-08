@@ -1,6 +1,6 @@
 # Selbstbau-Variante: ESP32-C3 + 1,3"-OLED + Drehgeber
 
-> Alternative zum M5Stack Dial (Firmware: `src/oled/main.cpp`, Build: `pio run -e esp32c3 -t upload`).
+> Alternative zum M5Stack Core2 (Firmware: `src/oled/main.cpp`, Build: `pio run -e esp32c3 -t upload`).
 > Unterstützt dieselben 6 Sensortypen, aber keinen Neigungsmesser.
 
 ## 2. Einkaufsliste (ca. 40–60 €)
