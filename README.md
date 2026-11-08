@@ -1,15 +1,20 @@
 # Bordinstrument für den Sprinter W906 – Reifendruck, Neigung, Kompass
 
 Ein kleines Einbau-Display im **1/32-DIN-Normmaß** (Rahmen 53 × 30 mm, Ausschnitt 45 × 22,5 mm) auf
-Basis des **M5Stack DinMeter v1.1** – im **Retro-Look in Bernstein-Gelb**: 7-Segment-Zahlen, Pixelschrift,
-Warnungen invertiert. Reifendruck aller 4 Räder mit **Straße/Offroad**-Solldrücken und Warnungen,
+Basis des **M5Stack DinMeter v1.1** – wahlweise im **Retro-Look** (Bernstein-Gelb, 7-Segment) oder
+**modern** (dunkle Karten, Statusfarben), umschaltbar im Menü unter *Design*. Reifendruck aller 4 Räder mit **Straße/Offroad**-Solldrücken und Warnungen,
 dazu Neigungsmesser, Kompass, Höhe/Wetter/Uhr und Stellplatz-Ausrichtung.
 
 - 🛒 **Was kaufen & wie einbauen?** → [TEILELISTE.md](TEILELISTE.md)
 
-![Alle Seiten](docs/bilder/uebersicht.png)
+### V1 – Retro
+![Alle Seiten Retro](docs/bilder/v1_retro/uebersicht.png)
 
-*(Vorschau nachgezeichnet – Geometrie wie in der Firmware, Pixelschrift angenähert.)*
+### V2 – Modern
+![Alle Seiten Modern](docs/bilder/v2_modern/uebersicht.png)
+
+*(Vorschau nachgezeichnet – Geometrie wie in der Firmware, Schrift angenähert. Generatoren in `tools/`.
+Die Geräteschriften kennen keine Umlaute, daher „Hoehe“, „Strasse“ usw.)*
 
 ## Die Seiten (Knopf drehen)
 
@@ -52,7 +57,7 @@ Die Sensoren senden Druck, Temperatur und Batterie per Bluetooth; das Display h�
 **Menü:** Solldruck Straße vorn/hinten, Offroad vorn/hinten · Warn-, Kritisch-, Überdruck-Schwelle ·
 Leck-Erkennung · Sensoren anlernen · Neigung nullen · Einbaulage · Warnwinkel Seite/Längs ·
 Kompass kalibrieren / Korrektur / spiegeln · Höhe setzen · Uhr stellen · Radstand/Spurweite ·
-Helligkeit · Lautstärke · Warnton · Demo.
+Design (Retro/Modern) · Helligkeit · Lautstärke · Warnton · Demo.
 
 > ⚠️ Die Solldrücke ab Werk (Straße 3,5/4,0 bar, Offroad 2,5/2,8 bar) sind **Platzhalter**.
 > Trag die Werte aus der Reifendrucktabelle deines Sprinters ein (Tankklappe/B-Säule).
@@ -110,7 +115,9 @@ Helligkeit · Lautstärke · Warnton · Demo.
 
 ```
 platformio.ini            Build-Konfiguration (dinmeter, esp32c3/esp32dev = Selbstbau-Variante, native = Tests)
-src/dinmeter/main.cpp     Firmware für den M5Stack DinMeter v1.1
+src/dinmeter/main.cpp     Firmware für den M5Stack DinMeter v1.1 (inkl. Design Retro)
+src/dinmeter/ui_modern.inc Design Modern (V2)
+tools/                    Vorschau-Generatoren (Python/Pillow)
 src/oled/main.cpp         Alternative Selbstbau-Firmware: ESP32-C3 + 1,3"-OLED + Drehgeber (siehe docs/SELBSTBAU_OLED.md)
 include/BleTpms.h         Bluetooth-Empfang (gemeinsam)
 lib/TpmsCore/             Logik ohne Hardware: Sensor-Dekoder, Warnungen, Neigung, Ausrichten

@@ -83,7 +83,7 @@ static void showOverlay(const char* text) {
 }
 
 // ============================================================ Speicher
-static const uint8_t SETTINGS_VERSION = 3;
+static const uint8_t SETTINGS_VERSION = 4;
 
 static void applySettings() {
   M5.Display.setBrightness(settings.contrast);
@@ -481,13 +481,21 @@ static void drawLevelPage() {
 enum MenuItem : uint8_t {
   M_ROAD_F, M_ROAD_R, M_OFF_F, M_OFF_R, M_WARN, M_CRIT, M_HIGH, M_LEAK_BAR, M_LEAK_MIN, M_PAIR,
   M_CALIB, M_MOUNT, M_TILT_R, M_TILT_P, M_MAGCAL, M_MAGOFF, M_MAGMIR, M_ALT, M_HOUR, M_MIN,
-  M_WB, M_TRACK, M_BRIGHT, M_VOL, M_SOUND, M_DEMO, M_BACK, M_COUNT
+  M_WB, M_TRACK, M_THEME, M_BRIGHT, M_VOL, M_SOUND, M_DEMO, M_BACK, M_COUNT
 };
 static const char* const MENU_LABELS[M_COUNT] = {
     "SOLL STR VO", "SOLL STR HI", "SOLL OFF VO", "SOLL OFF HI", "WARNUNG",    "KRITISCH",   "ZU HOCH",
     "LECK BAR",    "LECK MIN",    "SENSOREN",    "NEIGUNG 0",   "EINBAULAGE", "WARN SEITE", "WARN LAENGS",
     "KOMPASS KAL", "KOMPASS +-",  "KOMP SPIEG",  "HOEHE",       "UHR STD",    "UHR MIN",    "RADSTAND",
-    "SPURWEITE",   "HELLIGKEIT",  "LAUTSTAERKE", "WARNTON",     "DEMO",       "ZURUECK"};
+    "SPURWEITE",   "DESIGN",      "HELLIGKEIT",  "LAUTSTAERKE", "WARNTON",     "DEMO",       "ZURUECK"};
+// Gleiche Punkte in normaler Schreibweise (Design "Modern")
+static const char* const MENU_NICE[M_COUNT] = {
+    "Soll Strasse vorn",  "Soll Strasse hinten", "Soll Offroad vorn",  "Soll Offroad hinten", "Warnung ab",
+    "Kritisch ab",        "Hinweis zu hoch",     "Leck: Verlust",      "Leck: Zeitraum",      "Sensoren anlernen",
+    "Neigung nullen",     "Einbaulage Sensor",   "Warnung Seite",      "Warnung Laengs",      "Kompass kalibrieren",
+    "Kompass Korrektur",  "Kompass spiegeln",    "Hoehe setzen",       "Uhr Stunde",          "Uhr Minute",
+    "Radstand",           "Spurweite",           "Design",             "Helligkeit",          "Lautstaerke",
+    "Warnton",            "Demo-Modus",          "Zurueck"};
 // Ausfuehrliche Titel fuer den Bearbeiten-Bildschirm
 static const char* const EDIT_TITLES[M_COUNT] = {
     "SOLL STRASSE VORNE",  "SOLL STRASSE HINTEN", "SOLL OFFROAD VORNE", "SOLL OFFROAD HINTEN",
@@ -495,7 +503,7 @@ static const char* const EDIT_TITLES[M_COUNT] = {
     "LECK: ZEITRAUM",      "",                    "",                   "EINBAULAGE LAGESENSOR",
     "WARNUNG SEITENNEIG.", "WARNUNG LAENGSNEIG.", "",                   "KOMPASS KORREKTUR",
     "",                    "AKTUELLE HOEHE",      "UHR STUNDE",         "UHR MINUTE",
-    "RADSTAND",            "SPURWEITE",           "HELLIGKEIT",         "LAUTSTAERKE",
+    "RADSTAND",            "SPURWEITE",           "",                   "HELLIGKEIT",         "LAUTSTAERKE",
     "",                    "",                    ""};
 static int menuIdx = 0, menuTop = 0;
 static const int MENU_ROWS = 5;
@@ -554,6 +562,7 @@ static void menuValue(int item, char* buf, size_t n, char* unit = nullptr, size_
     case M_VOL: snprintf(buf, n, "%u", (unsigned)(settings.volume * 100 / 255)), setUnit("%"); break;
     case M_SOUND: snprintf(buf, n, "%s", settings.buzzer ? "AN" : "AUS"); break;
     case M_DEMO: snprintf(buf, n, "%s", settings.demo ? "AN" : "AUS"); break;
+    case M_THEME: snprintf(buf, n, "%s", settings.theme ? "MODERN" : "RETRO"); break;
     default: buf[0] = 0;
   }
 }
@@ -880,6 +889,10 @@ static void activateMenuItem() {
       settings.buzzer = !settings.buzzer;
       saveSettings();
       break;
+    case M_THEME:
+      settings.theme = settings.theme ? 0 : 1;
+      saveSettings();
+      break;
     case M_DEMO:
       settings.demo = !settings.demo;
       for (auto& m : monitors) m.reset();
@@ -1029,6 +1042,9 @@ static void evaluateAll(uint32_t now) {
   }
 }
 
+// ============================================================ Design "Modern" (V2)
+#include "ui_modern.inc"
+
 // ============================================================ Arduino
 void setup() {
   auto cfg = M5.config();
@@ -1086,6 +1102,11 @@ void loop() {
 
   if (now - lastDraw >= 50) {  // ~20 fps
     lastDraw = now;
+    if (settings.theme == 1) {
+      drawModernFrame();
+      canvas.pushSprite(0, 0);
+      return;
+    }
     canvas.fillScreen(BG);
     switch (screen) {
       case Screen::Main:

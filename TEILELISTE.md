@@ -9,7 +9,7 @@ schmaler Rahmen (**53 × 30 mm**), dahinter verschwindet das Gerät in einem rec
 von **45 × 22,5 mm** (32 mm Einbautiefe). 1,14"-Farbdisplay (240 × 135), Drehknopf mit Taster,
 Summer, Bluetooth – und **6–36 V Eingang**: direkt ans Bordnetz, kein USB-Adapter nötig.
 
-![Vorschau aller Seiten](docs/bilder/uebersicht.png)
+![Vorschau Modern](docs/bilder/v2_modern/1_reifen.png) ![Vorschau Retro](docs/bilder/v1_retro/1_reifen.png)
 
 ## Einkaufsliste
 

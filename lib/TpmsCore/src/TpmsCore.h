@@ -93,6 +93,8 @@ struct Settings {
   bool compassMirror = false;           // falls Kompass "falsch herum" dreht
   // --- Hoehe
   float qnhPa = 101325.0f;              // Luftdruck auf Meereshoehe (ueber "Hoehe setzen" kalibriert)
+  // --- Darstellung
+  uint8_t theme = 0;                    // 0 = Retro (Bernstein), 1 = Modern
 };
 
 void clampSettings(Settings& s);

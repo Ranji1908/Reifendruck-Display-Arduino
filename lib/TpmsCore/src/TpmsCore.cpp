@@ -47,6 +47,7 @@ void clampSettings(Settings& s) {
   s.tiltWarnPitch = clampT<uint8_t>(s.tiltWarnPitch, 5, 45);
   s.wheelbaseCm = clampT<uint16_t>(s.wheelbaseCm, 150, 600);
   s.trackCm = clampT<uint16_t>(s.trackCm, 100, 250);
+  if (s.theme > 1) s.theme = 0;
   s.compassOffsetDeg = clampT<int16_t>(s.compassOffsetDeg, -180, 180);
   if (!(s.qnhPa > 85000.0f && s.qnhPa < 110000.0f)) s.qnhPa = 101325.0f;
   for (int i = 0; i < 3; ++i)
