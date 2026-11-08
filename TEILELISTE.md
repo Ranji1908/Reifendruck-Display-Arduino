@@ -11,17 +11,44 @@ Summer, Bluetooth – und **6–36 V Eingang**: direkt ans Bordnetz, kein USB-Ad
 
 ![Vorschau Modern](docs/bilder/v2_modern/1_reifen.png) ![Vorschau Retro](docs/bilder/v1_retro/1_reifen.png)
 
-## Einkaufsliste
+## Einkaufsliste (vollständig)
 
-| # | Teil | Wofür | Worauf achten | ca. Preis |
+### Elektronik
+
+| ✓ | Menge | Teil | Artikel / Suchbegriff | Hinweis | ca. Preis |
+|---|---|---|---|---|---|
+| ☐ | 1 | **M5Stack DinMeter v1.1** | K134-V11 | das Display mit Drehknopf, Summer, Uhr, Bluetooth | 25–35 € |
+| ☐ | 1 | **M5Stack Unit Mini IMU-Pro** | U171 (BMI270 + BMM150 + BMP280) | Neigung, Kompass, Höhe, Luftdruck, Innentemperatur. 5-cm-Kabel liegt bei | 7–10 € |
+| ☐ | 1 | **Grove-Kabel 20 cm** (HY2.0-4P) | „M5Stack Grove Cable 20cm“ | damit die IMU nicht direkt am Display kleben muss (weiter weg von Störquellen) | 2–3 € |
+| ☐ | 4 | **BLE-Ventilkappen-Reifensensoren** (1 Set) | App „TPMSII“, „SYTPMS“, „ITPMS (K)“ oder „Ai TPMS“ | **Messbereich mind. 6 bar / 87 psi**, mit Kontermuttern, CR1632/CR2032-Batterien meist dabei | 25–45 € |
+
+### Strom
+
+| ✓ | Menge | Teil | Hinweis | ca. Preis |
 |---|---|---|---|---|
-| 1 | **M5Stack DinMeter v1.1** (Artikel K134-V11) | das komplette Gerät | v1.1 mit StampS3A ist die aktuelle Version. | 25–35 € |
-| 2 | **4× BLE-Ventilkappen-Reifensensoren** | Druck + Temperatur je Rad | Muss eine der Apps unten nutzen. **Messbereich mind. 6 bar (87 psi)** – der Sprinter fährt hinten über 4 bar. Mit Kontermuttern. | 25–45 € |
-| 3 | **Stromanschluss** | an Zündungsplus | Sicherungsabgriff („Add-A-Fuse“, Sicherungstyp im Sprinter vorher nachschauen), **2-A-Sicherung**, ca. 2 m Kabel 2 × 0,5 mm², Ringöse für Masse. Anschlussklemme am DinMeter prüfen (Doku/Lieferumfang). | 10 € |
-| 4 | **M5Stack Unit Mini IMU-Pro** (BMI270 + BMM150 + BMP280, Artikel U171) – *sehr empfohlen* | Neigung, Ausrichten, **Kompass**, **Höhe, Luftdruck/Wetter, Innentemperatur** | Wird per beiliegendem Kabel in **Port A** gesteckt, kein Löten. Ohne sie laufen Reifendruck, Reifentemperatur und Uhr ganz normal. | 7–10 € |
-| 5 | **Träger-Blende** | worin das Display sitzt | z. B. eine **1-DIN-Blindblende** (Radioschacht-Blende) für einen freien DIN-Schacht, oder eine Blindabdeckung/Fachabdeckung. Kostet wenig – geht beim Ausschnitt was schief, einfach neu kaufen. | 5–15 € |
+| ☐ | 1 | **Sicherungsabgriff („Add-A-Fuse“)** | Bauform passend zum Sprinter: **vorher eine Sicherung ziehen und vergleichen** (Mini oder Low-Profile-Mini) | 3–5 € |
+| ☐ | 1 | **Flachsicherung 2 A** in derselben Bauform | für das Display | 1 € |
+| ☐ | 2 m | **Fahrzeugleitung 0,5 mm²**, rot + schwarz (oder 2-adrig) | Plus und Masse | 3 € |
+| ☐ | 1 | **Ringkabelschuh M6** (isoliert) | Masse an einen Massepunkt (Schraube an der Karosserie) | 1 € |
+| ☐ | 4 | **Stoßverbinder** oder Lötverbinder, dazu Schrumpfschlauch | Kabel verlängern/verbinden | 3 € |
+| ☐ | 1 | **Stecker/Klemme für den 6–36-V-Eingang** des DinMeter | **Bauform im Lieferumfang bzw. in der M5Stack-Doku prüfen** – konnte ich nicht sicher klären. Notlösung: Strom über USB-C mit einem Kfz-USB-Adapter | – |
 
-**Gesamt: ca. 65–115 €.**
+### Einbau
+
+| ✓ | Menge | Teil | Hinweis | ca. Preis |
+|---|---|---|---|---|
+| ☐ | 1 | **Träger-Blende**: 1-DIN-Blindblende (Radioschacht) oder Blindabdeckung/Fachdeckel | darin den Ausschnitt 45 × 22,5 mm machen | 5–15 € |
+| ☐ | 1 | **3M VHB** doppelseitiges Klebeband (schmal) | Display in der Blende und IMU hinter der Verkleidung fixieren | 5 € |
+| ☐ | 1 | **Gummitülle / Kantenschutz** | falls Kabel durch eine Bohrung laufen | 1 € |
+| ☐ | 5 | **Kabelbinder** (klein) | Kabel ordentlich verlegen | 1 € |
+| ☐ | 1 | **USB-C-Kabel mit Datenleitung** | Firmware einmalig vom PC aufspielen (reine Ladekabel gehen nicht) | – (meist vorhanden) |
+
+**Gesamt: ca. 85–130 €.**
+
+### Werkzeug
+
+Multimeter (Zündungsplus-Sicherung finden), Abisolierzange, Crimpzange, Verkleidungskeile,
+Cutter + kleine Feile + Bohrer (Ausschnitt), Isopropanol zum Entfetten, PC mit VS Code + PlatformIO.
 
 ## Einbau
 
