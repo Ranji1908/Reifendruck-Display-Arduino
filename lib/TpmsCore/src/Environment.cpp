@@ -157,3 +157,73 @@ const char* PressureTrend::text() const {
 }
 
 }  // namespace tpms
+
+// ---------------------------------------------------------------- QMP6988
+// Festkomma-Rechenweg uebernommen aus M5Stack M5Unit-ENV (QMP6988.cpp, MIT-Lizenz).
+namespace tpms {
+
+void qmp6988ParseCalib(const uint8_t d[25], Qmp6988Calib& c) {
+  int32_t a0 = (int32_t)(((uint32_t)d[18] << 12) | ((uint32_t)d[19] << 4) | (d[24] & 0x0F));
+  if (a0 & 0x80000) a0 -= 0x100000;  // 20 Bit mit Vorzeichen
+  int32_t b00 = (int32_t)(((uint32_t)d[0] << 12) | ((uint32_t)d[1] << 4) | ((d[24] & 0xF0) >> 4));
+  if (b00 & 0x80000) b00 -= 0x100000;
+  auto s16 = [&](int i) { return (int16_t)((d[i] << 8) | d[i + 1]); };
+  c.a0 = a0;
+  c.b00 = b00;
+  c.a1 = 3608LL * s16(20) - 1731677965LL;
+  c.a2 = 16889LL * s16(22) - 87619360LL;
+  c.bt1 = 2982LL * s16(2) + 107370906LL;
+  c.bt2 = 329854LL * s16(4) + 108083093LL;
+  c.bp1 = 19923LL * s16(6) + 1133836764LL;
+  c.b11 = 2406LL * s16(8) + 118215883LL;
+  c.bp2 = 3079LL * s16(10) - 181579595LL;
+  c.b12 = 6846LL * s16(12) + 85590281LL;
+  c.b21 = 13836LL * s16(14) + 79333336LL;
+  c.bp3 = 2915LL * s16(16) + 157155561LL;
+}
+
+bool qmp6988Compensate(const Qmp6988Calib& ik, uint32_t rawP, uint32_t rawT, float& tempC, float& pressPa) {
+  const int32_t dt = (int32_t)(rawT - 8388608UL), dp = (int32_t)(rawP - 8388608UL);
+  // Temperatur (convTx02e)
+  int64_t wk1 = ik.a1 * (int64_t)dt;
+  int64_t wk2 = (ik.a2 * (int64_t)dt) >> 14;
+  wk2 = (wk2 * (int64_t)dt) >> 10;
+  wk2 = ((wk1 + wk2) / 32767) >> 19;
+  const int16_t tx = (int16_t)((ik.a0 + wk2) >> 4);
+  // Druck (getPressure02e)
+  int64_t wk3;
+  wk1 = ik.bt1 * (int64_t)tx;
+  wk2 = (ik.bp1 * (int64_t)dp) >> 5;
+  wk1 += wk2;
+  wk2 = (ik.bt2 * (int64_t)tx) >> 1;
+  wk2 = (wk2 * (int64_t)tx) >> 8;
+  wk3 = wk2;
+  wk2 = (ik.b11 * (int64_t)tx) >> 4;
+  wk2 = (wk2 * (int64_t)dp) >> 1;
+  wk3 += wk2;
+  wk2 = (ik.bp2 * (int64_t)dp) >> 13;
+  wk2 = (wk2 * (int64_t)dp) >> 1;
+  wk3 += wk2;
+  wk1 += wk3 >> 14;
+  wk2 = ik.b12 * (int64_t)tx;
+  wk2 = (wk2 * (int64_t)tx) >> 22;
+  wk2 = (wk2 * (int64_t)dp) >> 1;
+  wk3 = wk2;
+  wk2 = (ik.b21 * (int64_t)tx) >> 6;
+  wk2 = (wk2 * (int64_t)dp) >> 23;
+  wk2 = (wk2 * (int64_t)dp) >> 1;
+  wk3 += wk2;
+  wk2 = (ik.bp3 * (int64_t)dp) >> 12;
+  wk2 = (wk2 * (int64_t)dp) >> 23;
+  wk2 = wk2 * (int64_t)dp;
+  wk3 += wk2;
+  wk1 += wk3 >> 15;
+  wk1 /= 32767LL;
+  wk1 >>= 11;
+  wk1 += ik.b00;
+  tempC = tx / 256.0f;
+  pressPa = (int32_t)wk1 / 16.0f;
+  return pressPa > 30000.0f && pressPa < 120000.0f && tempC > -40.0f && tempC < 85.0f;
+}
+
+}  // namespace tpms

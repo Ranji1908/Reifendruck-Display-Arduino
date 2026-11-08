@@ -126,7 +126,7 @@ static void noSensor(const char* title, const char* what) {
   titleBar(title);
   canvas.fillSmoothRoundRect(4, 20, 232, 113, 8, M_CARD);
   txt(what, 120, 60, S18, M_WARN, middle_center);
-  txt("Unit Mini IMU-Pro an Port A", 120, 88, S12, M_SUB, middle_center);
+  txt("Passende Unit an Port A", 120, 88, S12, M_SUB, middle_center);
   txt("stecken und neu starten", 120, 104, S12, M_SUB, middle_center);
 }
 

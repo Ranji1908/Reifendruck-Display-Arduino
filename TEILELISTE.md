@@ -13,43 +13,44 @@ Summer, Bluetooth – und **6–36 V Eingang**: direkt ans Bordnetz, kein USB-Ad
 
 ## Einkaufsliste (vollständig)
 
-### Elektronik
+### Bestellung 1: alles aus dem M5Stack-Shop (shop.m5stack.com)
 
-| ✓ | Menge | Teil | Artikel / Suchbegriff | Hinweis | ca. Preis |
+| ✓ | Menge | Teil | Artikel | Wofür | ca. Preis |
 |---|---|---|---|---|---|
-| ☐ | 1 | **M5Stack DinMeter v1.1** | K134-V11 | das Display mit Drehknopf, Summer, Uhr, Bluetooth | 25–35 € |
-| ☐ | 1 | **M5Stack Unit Mini IMU-Pro** | U171 (BMI270 + BMM150 + BMP280) | Neigung, Kompass, Höhe, Luftdruck, Innentemperatur. 5-cm-Kabel liegt bei | 7–10 € |
-| ☐ | 1 | **Grove-Kabel 20 cm** (HY2.0-4P) | „M5Stack Grove Cable 20cm“ | damit die IMU nicht direkt am Display kleben muss (weiter weg von Störquellen) | 2–3 € |
-| ☐ | 4 | **BLE-Ventilkappen-Reifensensoren** (1 Set) | App „TPMSII“, „SYTPMS“, „ITPMS (K)“ oder „Ai TPMS“ | **Messbereich mind. 6 bar / 87 psi**, mit Kontermuttern, CR1632/CR2032-Batterien meist dabei | 25–45 € |
+| ☐ | 1 | **DinMeter v1.1** | K134-V11 | das Display. **Im Lieferumfang:** Anschlussklemme (2-polig, 2,54 mm) für 6–36 V, Halteklammer, Klebeband | 25–35 $ |
+| ☐ | 1 | **9-DoF IMU Unit** (BMI270 + BMM350) | U229 | Neigung, Ausrichten **und Kompass** | ca. 15 $ |
+| ☐ | 1 | **Barometric Pressure Unit** (QMP6988) | U090-B | Höhe, Luftdruck/Wetter, Innentemperatur | ca. 5 $ |
+| ☐ | 1 | **1-zu-3 HUB Unit** (Grove-Verteiler) | U006 | beide Units an Port A des DinMeter | ca. 3,50 $ |
+| ☐ | 1 | **Grove-Kabel 20 cm** (Packung) | „Grove Cable 20cm“ | Verbindung DinMeter → HUB → Units (meist liegt je Unit ein Kabel bei – eine Reserve schadet nicht) | 2–3 $ |
+| ☐ | 1 | USB-C-Kabel (Daten) | | Firmware aufspielen – nur falls keins zu Hause | 2–3 $ |
 
-> **Mini IMU-Pro ausverkauft?** Alternative, die die Firmware genauso erkennt:
-> **6-Axis IMU Unit (MPU6886, U095)** für Neigung + Ausrichten, optional zusätzlich **ENV IV Unit
-> (SHT40 + BMP280, U001-D)** für Höhe, Luftdruck/Wetter und Innentemperatur. Beide zusammen an Port A
-> brauchen einen **Grove-Verteiler (M5Stack 1-zu-3 HUB Unit)**. Der **Kompass** geht nur mit der
-> Mini IMU-Pro (Magnetfeldsensor) – die kann man später nachrüsten.
+**Zwischensumme M5Stack: ca. 50–65 $** (+ Versand/Zoll aus China einplanen)
 
-### Strom
+**Falls etwas ausverkauft ist** – die Firmware erkennt auch:
+- statt 9-DoF IMU: **6-Axis IMU Unit (MPU6886, U095)** → Neigung + Ausrichten, aber **ohne Kompass**
+- statt 9-DoF IMU + Barometer + HUB: **Unit Mini IMU-Pro (U171)** → alles in einem Modul
+- statt Barometric Pressure Unit: **ENV III (QMP6988)** oder **ENV IV (BMP280)**
 
-| ✓ | Menge | Teil | Hinweis | ca. Preis |
-|---|---|---|---|---|
-| ☐ | 1 | **Sicherungsabgriff („Add-A-Fuse“)** | Bauform passend zum Sprinter: **vorher eine Sicherung ziehen und vergleichen** (Mini oder Low-Profile-Mini) | 3–5 € |
-| ☐ | 1 | **Flachsicherung 2 A** in derselben Bauform | für das Display | 1 € |
-| ☐ | 2 m | **Fahrzeugleitung 0,5 mm²**, rot + schwarz (oder 2-adrig) | Plus und Masse | 3 € |
-| ☐ | 1 | **Ringkabelschuh M6** (isoliert) | Masse an einen Massepunkt (Schraube an der Karosserie) | 1 € |
-| ☐ | 4 | **Stoßverbinder** oder Lötverbinder, dazu Schrumpfschlauch | Kabel verlängern/verbinden | 3 € |
-| ☐ | 1 | **Stecker/Klemme für den 6–36-V-Eingang** des DinMeter | **Bauform im Lieferumfang bzw. in der M5Stack-Doku prüfen** – konnte ich nicht sicher klären. Notlösung: Strom über USB-C mit einem Kfz-USB-Adapter | – |
-
-### Einbau
+### Bestellung 2: Reifensensoren (Amazon)
 
 | ✓ | Menge | Teil | Hinweis | ca. Preis |
 |---|---|---|---|---|
-| ☐ | 1 | **Träger-Blende**: 1-DIN-Blindblende (Radioschacht) oder Blindabdeckung/Fachdeckel | darin den Ausschnitt 45 × 22,5 mm machen | 5–15 € |
-| ☐ | 1 | **3M VHB** doppelseitiges Klebeband (schmal) | Display in der Blende und IMU hinter der Verkleidung fixieren | 5 € |
-| ☐ | 1 | **Gummitülle / Kantenschutz** | falls Kabel durch eine Bohrung laufen | 1 € |
-| ☐ | 5 | **Kabelbinder** (klein) | Kabel ordentlich verlegen | 1 € |
-| ☐ | 1 | **USB-C-Kabel mit Datenleitung** | Firmware einmalig vom PC aufspielen (reine Ladekabel gehen nicht) | – (meist vorhanden) |
+| ☐ | 1 Set (4 Stück) | **WODHMIEY Reifendruck-Kontrollsystem** (ASIN B0GWH88YSV) | App „ITPMS (K)“ → Format Typ D, wird erkannt. **Messbereich prüfen** (über deinem Solldruck hinten) | 30–45 € |
 
-**Gesamt: ca. 85–130 €.**
+### Bestellung 3: Baumarkt / Autozubehör
+
+| ✓ | Menge | Teil | Hinweis | ca. Preis |
+|---|---|---|---|---|
+| ☐ | 1 | **Sicherungsabgriff („Add-A-Fuse“)** | Bauform: vorher eine Sicherung im Sprinter ziehen und vergleichen (Mini oder Low-Profile-Mini) | 3–5 € |
+| ☐ | 1 | **Flachsicherung 2 A** (gleiche Bauform) | | 1 € |
+| ☐ | 2 m | **Fahrzeugleitung 0,5 mm²**, rot + schwarz | Plus und Masse | 3 € |
+| ☐ | 1 | **Ringkabelschuh M6**, isoliert | Masse an Karosserieschraube | 1 € |
+| ☐ | 4 | **Stoßverbinder** + Schrumpfschlauch | | 3 € |
+| ☐ | 1 | **1-DIN-Blindblende** oder Blind-/Fachabdeckung | darin der Ausschnitt 45 × 22,5 mm | 5–15 € |
+| ☐ | 1 | **3M VHB**-Klebeband (schmal) | für die Sensor-Units hinter der Verkleidung (das Klebeband beim DinMeter reicht fürs Display) | 5 € |
+| ☐ | 1 | Gummitülle, ein paar Kabelbinder | | 2 € |
+
+**Gesamt: ca. 110–150 €** inkl. Versand.
 
 ### Werkzeug
 

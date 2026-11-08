@@ -1,5 +1,6 @@
 // Unit-Tests fuer die Kernlogik. Ausfuehren mit:  pio test -e native
 #include <math.h>
+#include <stdint.h>
 #include <string.h>
 #include <unity.h>
 
@@ -416,6 +417,50 @@ void test_pressure_trend() {
   TEST_ASSERT_EQUAL_STRING("STURM?", tr.text());
 }
 
+// ---- QMP6988: Vergleich mit dem Original-Rechenweg aus M5Stack M5Unit-ENV (MIT)
+namespace qref {
+// Referenz: Formeln 1:1 aus M5Unit-ENV QMP6988.cpp
+typedef int32_t S32; typedef int16_t S16; typedef int64_t S64;
+struct IK{S32 a0,b00,a1,a2; S64 bt1,bt2,bp1,b11,bp2,b12,b21,bp3;};
+static void refCal(const uint8_t* a,IK& ik){
+  S32 a0=(S32)(((a[18]<<12)|(a[19]<<4)|(a[24]&0x0f))<<12); a0=a0>>12;
+  S32 b00=(S32)(((a[0]<<12)|(a[1]<<4)|((a[24]&0xf0)>>4))<<12); b00=b00>>12;
+  ik.a0=a0; ik.b00=b00;
+  ik.a1=3608L*(S32)(S16)((a[20]<<8)|a[21])-1731677965L;
+  ik.a2=16889L*(S32)(S16)((a[22]<<8)|a[23])-87619360L;
+  ik.bt1=2982L*(S64)(S16)((a[2]<<8)|a[3])+107370906L;
+  ik.bt2=329854L*(S64)(S16)((a[4]<<8)|a[5])+108083093L;
+  ik.bp1=19923L*(S64)(S16)((a[6]<<8)|a[7])+1133836764L;
+  ik.b11=2406L*(S64)(S16)((a[8]<<8)|a[9])+118215883L;
+  ik.bp2=3079L*(S64)(S16)((a[10]<<8)|a[11])-181579595L;
+  ik.b12=6846L*(S64)(S16)((a[12]<<8)|a[13])+85590281L;
+  ik.b21=13836L*(S64)(S16)((a[14]<<8)|a[15])+79333336L;
+  ik.bp3=2915L*(S64)(S16)((a[16]<<8)|a[17])+157155561L;}
+static S16 conv(IK*ik,S32 dt){S64 wk1,wk2;wk1=((S64)ik->a1*(S64)dt);wk2=((S64)ik->a2*(S64)dt)>>14;wk2=(wk2*(S64)dt)>>10;wk2=((wk1+wk2)/32767)>>19;return (S16)((ik->a0+wk2)>>4);}
+static S32 pres(IK*ik,S32 dp,S16 tx){S64 wk1,wk2,wk3;wk1=((S64)ik->bt1*(S64)tx);wk2=((S64)ik->bp1*(S64)dp)>>5;wk1+=wk2;wk2=((S64)ik->bt2*(S64)tx)>>1;wk2=(wk2*(S64)tx)>>8;wk3=wk2;wk2=((S64)ik->b11*(S64)tx)>>4;wk2=(wk2*(S64)dp)>>1;wk3+=wk2;wk2=((S64)ik->bp2*(S64)dp)>>13;wk2=(wk2*(S64)dp)>>1;wk3+=wk2;wk1+=wk3>>14;wk2=((S64)ik->b12*(S64)tx);wk2=(wk2*(S64)tx)>>22;wk2=(wk2*(S64)dp)>>1;wk3=wk2;wk2=((S64)ik->b21*(S64)tx)>>6;wk2=(wk2*(S64)dp)>>23;wk2=(wk2*(S64)dp)>>1;wk3+=wk2;wk2=((S64)ik->bp3*(S64)dp)>>12;wk2=(wk2*(S64)dp)>>23;wk2=(wk2*(S64)dp);wk3+=wk2;wk1+=wk3>>15;wk1/=32767L;wk1>>=11;wk1+=ik->b00;return (S32)wk1;}
+}
+
+void test_qmp6988_matches_m5_reference() {
+  uint32_t seed = 12345;
+  auto rnd = [&]() { return seed = seed * 1103515245u + 12345u, (seed >> 8); };
+  int bad = 0;
+  for (int i = 0; i < 5000; ++i) {
+    uint8_t raw[25];
+    for (auto& b : raw) b = rnd() & 0xFF;
+    uint32_t rp = rnd() & 0xFFFFFF, rt = rnd() & 0xFFFFFF;
+    qref::IK ik;
+    qref::refCal(raw, ik);
+    int16_t tx = qref::conv(&ik, (int32_t)(rt - 8388608));
+    int32_t pr = qref::pres(&ik, (int32_t)(rp - 8388608), tx);
+    Qmp6988Calib c;
+    qmp6988ParseCalib(raw, c);
+    float t, p;
+    qmp6988Compensate(c, rp, rt, t, p);
+    if (t != tx / 256.0f || p != pr / 16.0f) ++bad;
+  }
+  TEST_ASSERT_TRUE(bad == 0);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_decode_known_packet);
@@ -444,5 +489,6 @@ int main(int, char**) {
   RUN_TEST(test_bmp280_datasheet_example);
   RUN_TEST(test_altitude);
   RUN_TEST(test_pressure_trend);
+  RUN_TEST(test_qmp6988_matches_m5_reference);
   return UNITY_END();
 }

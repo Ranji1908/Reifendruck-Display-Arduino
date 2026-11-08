@@ -237,6 +237,17 @@ void bmp280ParseCalib(const uint8_t raw[24], Bmp280Calib& c);
 // adcT/adcP = 20-Bit-Rohwerte. Ergebnis: Grad C und Pa.
 bool bmp280Compensate(const Bmp280Calib& c, int32_t adcT, int32_t adcP, float& tempC, float& pressPa);
 
+// ---------------------------------------------------------------- Luftdruck (QMP6988)
+// z.B. M5Stack ENV III, Barometric Pressure Unit. Rechenweg aus dem M5Stack-Treiber M5Unit-ENV (MIT).
+struct Qmp6988Calib {
+  int32_t a0, b00;
+  int64_t a1, a2, bt1, bt2, bp1, b11, bp2, b12, b21, bp3;
+};
+// raw = 25 Byte ab Register 0xA0
+void qmp6988ParseCalib(const uint8_t raw[25], Qmp6988Calib& c);
+// rawP/rawT = 24-Bit-Rohwerte (Register 0xF7..0xFC). Ergebnis: Grad C und Pa.
+bool qmp6988Compensate(const Qmp6988Calib& c, uint32_t rawP, uint32_t rawT, float& tempC, float& pressPa);
+
 float altitudeFromPressure(float pressPa, float qnhPa);
 float qnhFromAltitude(float pressPa, float altitudeM);
 

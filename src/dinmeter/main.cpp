@@ -3,7 +3,10 @@
 // Hardware: M5Stack DinMeter v1.1 (ESP32-S3, 1,14"-Display 240x135, Drehknopf, Summer, Uhr,
 //           6–36 V, Einbau im 1/32-DIN-Ausschnitt 45 x 22,5 mm)
 //           + 4 BLE-Ventilkappen-Sensoren
-//           + M5Stack Unit Mini IMU-Pro an Port A (Lage, Kompass, Luftdruck) – optional
+//           + Sensoren an Port A (optional, ueber Grove-HUB auch mehrere):
+//             Lage:      6-Axis IMU (MPU6886), 9-DoF IMU (BMI270+BMM350) oder Mini IMU-Pro
+//             Kompass:   9-DoF IMU (BMM350) oder Mini IMU-Pro (BMM150)
+//             Luftdruck: Barometric Pressure Unit / ENV III (QMP6988), ENV IV / Mini IMU-Pro (BMP280)
 //
 // Seiten (Knopf drehen):
 //   DRUCK -> REIFENTEMP -> NEIGUNG -> KOMPASS -> BORD (Hoehe/Wetter/Uhr) -> AUSRICHTEN
@@ -18,6 +21,7 @@
 
 #include "BleTpms.h"
 #include "TpmsCore.h"
+#include "bmm350.h"  // Kompass-Chip der M5Stack 9-DoF IMU Unit (Bosch SensorAPI)
 
 using namespace tpms;
 
@@ -57,8 +61,14 @@ static bool tiltWarn = false;
 static MagCalibrator magCal;
 
 // Luftdruck / Uhr
-static uint8_t bmpAddr = 0;
+enum class AirChip : uint8_t { None, Bmp280, Qmp6988 };
+static AirChip airChip = AirChip::None;
+static uint8_t bmpAddr = 0;  // Adresse des Luftdrucksensors (BMP280 oder QMP6988), 0 = keiner
 static Bmp280Calib bmpCal;
+static Qmp6988Calib qmpCal;
+// BMM350-Kompass (9-DoF IMU Unit)
+static uint8_t bmmAddr = 0;
+static struct bmm350_dev bmmDev;
 static float airTempC = NAN, airPa = NAN;
 static PressureTrend trend;
 static bool rtcOk = false;
@@ -351,7 +361,7 @@ static void drawTempsPage() {
 static void drawNoSensor(const char* title, const char* what) {
   header(title);
   ptext(what, W / 2, 50, 2, AMB, AL_C);
-  ptext("UNIT MINI IMU-PRO AN PORT A", W / 2, 80, 1, MID, AL_C);
+  ptext("PASSENDE UNIT AN PORT A", W / 2, 80, 1, MID, AL_C);
   ptext("STECKEN, NEU STARTEN", W / 2, 92, 1, MID, AL_C);
 }
 
@@ -747,19 +757,74 @@ static void drawOverlay() {
 
 // ============================================================ Sensoren
 static bool bmpBegin() {
-  const uint8_t addrs[2] = {0x76, 0x77};
-  for (uint8_t a : addrs) {
+  // 1) BMP280/BME280 (Unit Mini IMU-Pro, ENV IV)
+  const uint8_t bmpAddrs[2] = {0x76, 0x77};
+  for (uint8_t a : bmpAddrs) {
     uint8_t id = M5.Ex_I2C.readRegister8(a, 0xD0, 400000);
-    if (id != 0x58 && id != 0x60) continue;  // BMP280 / BME280
+    if (id != 0x58 && id != 0x60) continue;
     uint8_t raw[24];
     if (!M5.Ex_I2C.readRegister(a, 0x88, raw, 24, 400000)) continue;
     bmp280ParseCalib(raw, bmpCal);
     M5.Ex_I2C.writeRegister8(a, 0xF5, 0x90, 400000);  // 500 ms Standby, Filter x16
     M5.Ex_I2C.writeRegister8(a, 0xF4, 0x57, 400000);  // Temp x2, Druck x16, Dauerbetrieb
     bmpAddr = a;
+    airChip = AirChip::Bmp280;
+    return true;
+  }
+  // 2) QMP6988 (ENV III, Barometric Pressure Unit)
+  const uint8_t qmpAddrs[2] = {0x70, 0x56};
+  for (uint8_t a : qmpAddrs) {
+    if (M5.Ex_I2C.readRegister8(a, 0xD1, 400000) != 0x5C) continue;
+    M5.Ex_I2C.writeRegister8(a, 0xE0, 0xE6, 400000);  // Reset
+    delay(20);
+    M5.Ex_I2C.writeRegister8(a, 0xE0, 0x00, 400000);
+    delay(20);
+    uint8_t raw[25];
+    if (!M5.Ex_I2C.readRegister(a, 0xA0, raw, 25, 400000)) continue;
+    qmp6988ParseCalib(raw, qmpCal);
+    M5.Ex_I2C.writeRegister8(a, 0xF1, 0x02, 400000);  // IIR-Filter 4
+    M5.Ex_I2C.writeRegister8(a, 0xF4, 0x33, 400000);  // Temp x1, Druck x8, Dauerbetrieb
+    bmpAddr = a;
+    airChip = AirChip::Qmp6988;
     return true;
   }
   return false;
+}
+
+static int8_t bmmRead(uint8_t reg, uint8_t* d, uint32_t len, void*) {
+  return M5.Ex_I2C.readRegister(bmmAddr, reg, d, len, 400000) ? BMM350_OK : -1;
+}
+static int8_t bmmWrite(uint8_t reg, const uint8_t* d, uint32_t len, void*) {
+  return M5.Ex_I2C.writeRegister(bmmAddr, reg, d, len, 400000) ? BMM350_OK : -1;
+}
+static void bmmDelay(uint32_t us, void*) { delayMicroseconds(us); }
+
+static bool bmmBegin() {
+  const uint8_t addrs[2] = {0x14, 0x15};
+  for (uint8_t a : addrs) {
+    bmmAddr = a;
+    memset(&bmmDev, 0, sizeof(bmmDev));
+    bmmDev.intf_ptr = &bmmAddr;
+    bmmDev.read = bmmRead;
+    bmmDev.write = bmmWrite;
+    bmmDev.delay_us = bmmDelay;
+    if (bmm350_init(&bmmDev) != BMM350_OK) continue;
+    bmm350_set_odr_performance(BMM350_DATA_RATE_25HZ, BMM350_AVERAGING_8, &bmmDev);
+    bmm350_enable_axes(BMM350_X_EN, BMM350_Y_EN, BMM350_Z_EN, &bmmDev);
+    bmm350_set_powermode(BMM350_NORMAL_MODE, &bmmDev);
+    return true;
+  }
+  bmmAddr = 0;
+  return false;
+}
+
+static bool readMag(Vec3& m) {
+  if (M5.Imu.getMag(&m.x, &m.y, &m.z) && (fabsf(m.x) + fabsf(m.y) + fabsf(m.z)) > 1.0f) return true;  // BMM150
+  if (!bmmAddr) return false;
+  struct bmm350_mag_temp_data d;
+  if (bmm350_get_compensated_mag_xyz_temp_data(&d, &bmmDev) != BMM350_OK) return false;
+  m = {d.x, d.y, d.z};
+  return (fabsf(m.x) + fabsf(m.y) + fabsf(m.z)) > 1.0f;
 }
 
 static void updateAir(uint32_t now) {
@@ -773,10 +838,16 @@ static void updateAir(uint32_t now) {
   } else if (bmpAddr) {
     uint8_t d[6];
     if (!M5.Ex_I2C.readRegister(bmpAddr, 0xF7, d, 6, 400000)) return;
-    int32_t adcP = ((int32_t)d[0] << 12) | ((int32_t)d[1] << 4) | (d[2] >> 4);
-    int32_t adcT = ((int32_t)d[3] << 12) | ((int32_t)d[4] << 4) | (d[5] >> 4);
     float t, p;
-    if (!bmp280Compensate(bmpCal, adcT, adcP, t, p)) return;
+    if (airChip == AirChip::Bmp280) {
+      int32_t adcP = ((int32_t)d[0] << 12) | ((int32_t)d[1] << 4) | (d[2] >> 4);
+      int32_t adcT = ((int32_t)d[3] << 12) | ((int32_t)d[4] << 4) | (d[5] >> 4);
+      if (!bmp280Compensate(bmpCal, adcT, adcP, t, p)) return;
+    } else {
+      uint32_t rawP = ((uint32_t)d[0] << 16) | ((uint32_t)d[1] << 8) | d[2];
+      uint32_t rawT = ((uint32_t)d[3] << 16) | ((uint32_t)d[4] << 8) | d[5];
+      if (!qmp6988Compensate(qmpCal, rawP, rawT, t, p)) return;
+    }
     airTempC = t;
     airPa = isnan(airPa) ? p : airPa + 0.2f * (p - airPa);
   } else {
@@ -812,7 +883,7 @@ static void updateMotion() {
   tilt.compute(accelFilt, rollDeg, pitchDeg);
 
   Vec3 m;
-  if (M5.Imu.getMag(&m.x, &m.y, &m.z) && (fabsf(m.x) + fabsf(m.y) + fabsf(m.z)) > 1.0f) {
+  if (readMag(m)) {
     magOk = true;
     magRaw = m;
     if (screen == Screen::MagCalib) magCal.add(m);
@@ -1058,7 +1129,8 @@ void setup() {
   applySettings();
   imuOk = M5.Imu.isEnabled();
   rtcOk = M5.Rtc.isEnabled();
-  bmpBegin();  // Luftdrucksensor (Mini IMU-Pro oder ENV IV) – auch ohne Lagesensor
+  bmpBegin();  // Luftdrucksensor (BMP280 oder QMP6988) – auch ohne Lagesensor
+  if (bmmBegin()) magOk = true;  // BMM350-Kompass der 9-DoF IMU Unit
   accelFilt = {settings.level[0], settings.level[1], settings.level[2]};
 
   canvas.setColorDepth(16);
