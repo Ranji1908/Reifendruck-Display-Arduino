@@ -1,7 +1,7 @@
 # Reifendruck- und Neigungsanzeige für den Sprinter W906
 
-Ein schlichtes, rechteckiges Display fürs Armaturenbrett auf Basis des **M5Stack Core2**
-(54 × 54 mm, 2"-Touchdisplay, alles eingebaut): Reifendruck aller 4 Räder, Umschaltung
+Ein kleines Einbau-Display im **1/32-DIN-Normmaß** (Rahmen 53 × 30 mm, Ausschnitt 45 × 22,5 mm) auf
+Basis des **M5Stack DinMeter v1.1** – sitzt bündig in einer Blende wie ein Zusatzinstrument: Reifendruck aller 4 Räder, Umschaltung
 **Straße/Offroad** mit eigenen Solldrücken, Warnungen bei Druckverlust – dazu **Neigungsmesser**
 fürs Gelände und **Ausricht-Hilfe** für den Stellplatz.
 
@@ -15,14 +15,14 @@ fürs Gelände und **Ausricht-Hilfe** für den Stellplatz.
 
 | REIFEN | NEIGUNG | AUSRICHTEN |
 |---|---|---|
-| Transporter von oben, an jeder Ecke Druck, Temperatur und Soll. Oben rechts der wichtigste Status. | Heck- und Seitenansicht kippen live mit, Gradzahl, Warnung ab einstellbarem Winkel. | Libelle + **wie viele cm** unter welches Rad müssen (Auffahrkeile), bis der Camper eben steht. |
+| Transporter von oben, an jeder Ecke Druck und Soll. Oben rechts der wichtigste Status. | Heck- und Seitenansicht kippen live mit, Gradzahl, Warnung ab einstellbarem Winkel. | Libelle + **wie viele cm** unter welches Rad müssen (Auffahrkeile), bis der Camper eben steht. |
 
 ## So funktioniert's
 
 ```
- 4× BLE-Ventilkappen-Sensor ──Bluetooth──►  M5Stack Core2 (Lagesensor eingebaut)
+ 4× BLE-Ventilkappen-Sensor ──Bluetooth──►  M5Stack DinMeter  ◄──Port A── Unit IMU (Neigung, optional)
                                               │
-                       Zündungsplus ── USB-Adapter ──┘ (USB-C)
+                         Zündungsplus 12 V ───┘ (6–36-V-Eingang, 2-A-Sicherung)
 ```
 
 Die Sensoren senden Druck, Temperatur und Batterie per Bluetooth; das Display hört passiv mit
@@ -31,23 +31,17 @@ Die Sensoren senden Druck, Temperatur und Batterie per Bluetooth; das Display h�
 ## Software aufspielen
 
 1. [VS Code](https://code.visualstudio.com/) + Erweiterung **PlatformIO** installieren, diesen Ordner öffnen.
-2. Core2 per USB-C anschließen, unten **Upload** (→) – bzw. `pio run -e m5core2 -t upload`
-   (CoreS3: `pio run -e m5cores3 -t upload`).
+2. DinMeter per USB-C anschließen, unten **Upload** (→) – bzw. `pio run -e dinmeter -t upload`.
 3. Ohne Sensoren testen: Menü → **Demo-Modus an** (simuliert Druckverlust hinten links und Schaukeln).
 
-## Bedienung (Touch)
+## Bedienung (ein Drehknopf)
 
 | Wo | Aktion | Wirkung |
 |---|---|---|
-| Anzeige | **links / rechts tippen** oder wischen | vorige / nächste Seite |
-| | **Mitte tippen** | Straße ⇄ Offroad (bei aktivem Alarm: quittieren) |
-| | **lange halten** | Menü |
-| Menü | Eintrag antippen | ändern (Ein/Aus-Punkte schalten direkt um) |
-| | Leiste unten | hoch · zurück · runter |
-| Wert ändern | Leiste unten | − · OK · + |
-
-Beim Core2 gehen statt Touch auch die drei Tastenpunkte unter dem Display (links/Mitte/rechts,
-Mitte lange halten = Menü).
+| Anzeige | **drehen** | Seite wechseln: Reifen → Neigung → Ausrichten |
+| | **kurz drücken** | Straße ⇄ Offroad (bei aktivem Alarm: quittieren) |
+| | **lang drücken** | Menü |
+| Menü | drehen / kurz / lang | wählen / ändern & speichern / zurück |
 
 **Menü:** Solldruck Straße vorn/hinten, Offroad vorn/hinten · Warn-, Kritisch-, Überdruck-Schwelle ·
 Leck-Erkennung · Sensoren anlernen · Neigung nullen · Einbaulage · Warnwinkel Seite/Längs ·
@@ -87,19 +81,20 @@ Radstand/Spurweite · Helligkeit · Lautstärke · Warnton · Demo.
 - **Werks-RDK:** Hat dein Sprinter ab Werk Reifendruckkontrolle, sind dessen 433-MHz-Sensoren hiermit
   **nicht** lesbar. Die Ventilkappen-Sensoren funktionieren unabhängig davon zusätzlich.
 - **Ventilkappen-Sensoren** mit Kontermuttern sichern. Fürs Luftablassen abschrauben, danach wieder drauf.
-- **Hitze:** Nicht in die pralle Sonne hinter die Windschutzscheibe – der Core2 hat einen kleinen Akku eingebaut.
+- **Temperatur:** Der DinMeter ist für 0–40 °C spezifiziert – Einbauort ohne direkte Sonne wählen (siehe Teileliste).
 
 ## Fehlersuche
 
 - Sensor wird nicht gefunden: `#define DEBUG_BLE 1` oben in `include/BleTpms.h` bzw. als Build-Flag,
   dann `pio device monitor` – zeigt alle Bluetooth-Daten in der Nähe.
-- „Kein Lagesensor“ (nur CoreS3 SE oder ältere Geräte): Unit IMU in **Port A** stecken, neu starten.
+- „Kein Lagesensor“: Unit IMU in **Port A** stecken und neu starten.
+- Drehknopf springt 2 Einträge pro Rastung: `ENC_COUNTS_PER_DETENT` in `src/dinmeter/main.cpp` auf 2 setzen.
 
 ## Projektstruktur
 
 ```
-platformio.ini            Build-Konfiguration (m5core2, m5cores3, esp32c3/esp32dev = Selbstbau-Variante, native = Tests)
-src/core/main.cpp         Firmware für M5Stack Core2 / CoreS3
+platformio.ini            Build-Konfiguration (dinmeter, esp32c3/esp32dev = Selbstbau-Variante, native = Tests)
+src/dinmeter/main.cpp     Firmware für den M5Stack DinMeter v1.1
 src/oled/main.cpp         Alternative Selbstbau-Firmware: ESP32-C3 + 1,3"-OLED + Drehgeber (siehe docs/SELBSTBAU_OLED.md)
 include/BleTpms.h         Bluetooth-Empfang (gemeinsam)
 lib/TpmsCore/             Logik ohne Hardware: Sensor-Dekoder, Warnungen, Neigung, Ausrichten
