@@ -68,6 +68,22 @@ Cutter + kleine Feile + Bohrer (Ausschnitt), Isopropanol zum Entfetten, PC mit V
 > Armaturenbrett, eher unten in der Mittelkonsole oder im DIN-Schacht). Einen Akku brauchst du nicht
 > (es gibt nur einen optionalen Anschluss dafür). Bei Kälte kann das Display träge reagieren.
 
+## Konkrete Empfehlung Reifensensoren
+
+| Wahl | Produkt | App | Format | Warum | Achtung |
+|---|---|---|---|---|---|
+| **1** | z. B. **WISTEK 4-Sensor TPMS** (Amazon, ASIN B09Z2P6M48) oder baugleiche „Bluetooth TPMS 4 externe Sensoren“ | **TPMSII** | Typ A | verbreitetstes Format, Dekoder mit echtem Mitschnitt getestet | Messbereich laut Anleitung **bis 6,4 bar (92,6 psi)** – reicht, wenn dein Solldruck hinten ≤ ca. 5,5 bar ist |
+| 2 | **WODHMIEY Reifendruck-Kontrollsystem** (Amazon.de, ASIN B0GWH88YSV) | ITPMS (K) / LYTPMS | Typ D | im Referenzprojekt mit echtem Mitschnitt belegt, auf Amazon.de verfügbar | Messbereich vor dem Kauf auf der Produktseite prüfen |
+| 3 | AliExpress-Sets laut Referenzprojekt: [TPMSII](https://www.aliexpress.com/item/1005006129840804.html), [SYTPMS](https://www.aliexpress.com/item/1005006755884183.html) | TPMSII / SYTPMS | Typ A / B | günstig | lange Lieferzeit; bei 4-Sensor-Variante bestellen, nicht Motorrad (2 Sensoren) |
+
+**Wichtig:** Händler verkaufen äußerlich gleiche Sensoren mit unterschiedlicher Elektronik. Entscheidend ist
+die **App in der Beschreibung**. Nach dem Auspacken mit der App testen – und wenn das Display sie nicht
+findet: `DEBUG_BLE 1` setzen und das Log schicken, dann ergänze ich den Dekoder. Bei Amazon ist die
+Rücksendung einfacher als bei AliExpress.
+
+Markensets mit eigener App (z. B. SuperSense, Maxsensor, FOBO) funken mit eigenen Protokollen und
+werden **nicht** erkannt.
+
 ## Welche Reifensensoren?
 
 Die Firmware erkennt automatisch diese Bauarten (Formate aus dem Open-Source-Projekt [tpms_ble](https://github.com/bkbilly/tpms_ble)):
