@@ -1058,7 +1058,7 @@ void setup() {
   applySettings();
   imuOk = M5.Imu.isEnabled();
   rtcOk = M5.Rtc.isEnabled();
-  if (imuOk) bmpBegin();
+  bmpBegin();  // Luftdrucksensor (Mini IMU-Pro oder ENV IV) – auch ohne Lagesensor
   accelFilt = {settings.level[0], settings.level[1], settings.level[2]};
 
   canvas.setColorDepth(16);

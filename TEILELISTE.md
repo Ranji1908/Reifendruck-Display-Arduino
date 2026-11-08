@@ -22,6 +22,12 @@ Summer, Bluetooth – und **6–36 V Eingang**: direkt ans Bordnetz, kein USB-Ad
 | ☐ | 1 | **Grove-Kabel 20 cm** (HY2.0-4P) | „M5Stack Grove Cable 20cm“ | damit die IMU nicht direkt am Display kleben muss (weiter weg von Störquellen) | 2–3 € |
 | ☐ | 4 | **BLE-Ventilkappen-Reifensensoren** (1 Set) | App „TPMSII“, „SYTPMS“, „ITPMS (K)“ oder „Ai TPMS“ | **Messbereich mind. 6 bar / 87 psi**, mit Kontermuttern, CR1632/CR2032-Batterien meist dabei | 25–45 € |
 
+> **Mini IMU-Pro ausverkauft?** Alternative, die die Firmware genauso erkennt:
+> **6-Axis IMU Unit (MPU6886, U095)** für Neigung + Ausrichten, optional zusätzlich **ENV IV Unit
+> (SHT40 + BMP280, U001-D)** für Höhe, Luftdruck/Wetter und Innentemperatur. Beide zusammen an Port A
+> brauchen einen **Grove-Verteiler (M5Stack 1-zu-3 HUB Unit)**. Der **Kompass** geht nur mit der
+> Mini IMU-Pro (Magnetfeldsensor) – die kann man später nachrüsten.
+
 ### Strom
 
 | ✓ | Menge | Teil | Hinweis | ca. Preis |
