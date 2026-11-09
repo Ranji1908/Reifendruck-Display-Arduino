@@ -31,6 +31,19 @@ Summer, Bluetooth – und **6–36 V Eingang**: direkt ans Bordnetz, kein USB-Ad
 - statt 9-DoF IMU + Barometer + HUB: **Unit Mini IMU-Pro (U171)** → alles in einem Modul
 - statt Barometric Pressure Unit: **ENV III (QMP6988)** oder **ENV IV (BMP280)**
 
+### Alternative zu Bestellung 1: alles bei BerryBase (Versand aus Deutschland)
+
+| ✓ | Menge | Teil | Artikel | Wofür | ca. Preis |
+|---|---|---|---|---|---|
+| ☐ | 1 | **M5DinMeter** | M5-K134 (bzw. v1.1: K134-V11) | das Display. Die erste Version hat eine DC-Buchse statt Klemme – beide laufen mit der Firmware | – |
+| ☐ | 1 | **6-Axis IMU Unit (MPU6886)** | M5-U095 | Neigung + Ausrichten (kein Kompass) | 8,90 € |
+| ☐ | 1 | **ENV III Unit** (SHT30 + QMP6988) | M5-U001-C | Höhe, Luftdruck/Wetter, Innentemperatur | 7,90 € |
+| ☐ | 1 | **HUB Expansion Unit, 3 × Grove** | M5-U006 | IMU + ENV III gemeinsam an Port A | 4,40 € |
+| ☐ | 1 | Grove-Kabel 20 cm | | IMU liegt nur ein 5-cm-Kabel bei | 2–3 € |
+
+Einen **Kompass** führt BerryBase als M5-Unit derzeit nicht – den kann man später mit der
+Mini IMU-Pro (U171) oder der 9-DoF IMU (U229) aus dem M5Stack-Shop nachrüsten.
+
 ### Bestellung 2: Reifensensoren (Amazon)
 
 | ✓ | Menge | Teil | Hinweis | ca. Preis |
